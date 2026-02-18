@@ -4,7 +4,7 @@ import 'package:provider/provider.dart';
 import '../models/gps_photo.dart';
 import '../providers/photo_provider.dart';
 import '../utils/theme.dart';
-import '../widgets/gps_info_overlay.dart';
+import '../widgets/gps_watermark.dart';
 import '../widgets/map_snippet.dart';
 import '../widgets/photo_card.dart';
 
@@ -215,11 +215,7 @@ class _PhotoDetailScreen extends StatelessWidget {
             // GPS info
             Padding(
               padding: const EdgeInsets.all(16),
-              child: Container(
-                decoration: AppTheme.glassDecoration,
-                clipBehavior: Clip.antiAlias,
-                child: GpsInfoOverlay(photo: photo),
-              ),
+              child: GpsWatermark(photo: photo),
             ),
 
             // Map

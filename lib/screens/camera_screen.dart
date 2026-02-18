@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../models/gps_photo.dart';
 import '../providers/photo_provider.dart';
 import '../services/location_service.dart';
+import '../services/telemetry_service.dart';
 import '../utils/theme.dart';
 import 'review_screen.dart';
 
@@ -153,7 +154,8 @@ class _CameraScreenState extends State<CameraScreen>
     try {
       final image = await _controller!.takePicture();
 
-      final position = _currentPosition ?? await LocationService.getCurrentPosition();
+      final position =
+          _currentPosition ?? await LocationService.getCurrentPosition();
 
       if (position == null) {
         if (mounted) {
@@ -177,13 +179,32 @@ class _CameraScreenState extends State<CameraScreen>
         position.longitude,
       );
 
+      // Fetch telemetry data in parallel
+      final results = await Future.wait([
+        TelemetryService.getWeatherData(position.latitude, position.longitude),
+        TelemetryService.getMagneticField(),
+      ]);
+
+      final weather = results[0] as WeatherData;
+      final magnetic = results[1] as double?;
+
+      // Extract location name from address
+      final addressParts = address.split(',');
+      final locationName = addressParts.length > 2
+          ? addressParts[2].trim()
+          : (addressParts.isNotEmpty ? addressParts[0].trim() : 'Unknown');
+
       final photo = GpsPhoto(
         imagePath: image.path,
         latitude: position.latitude,
         longitude: position.longitude,
         altitude: position.altitude != 0.0 ? position.altitude : null,
         address: address,
+        locationName: locationName,
         timestamp: DateTime.now(),
+        windSpeed: weather.windSpeed,
+        humidity: weather.humidity,
+        magneticField: magnetic,
       );
 
       if (mounted) {
@@ -485,14 +506,7 @@ class _CameraScreenState extends State<CameraScreen>
                       Consumer<PhotoProvider>(
                         builder: (context, provider, _) {
                           return GestureDetector(
-                            onTap: () {
-                              // Switch to gallery tab via parent
-                              final scaffold =
-                                  context.findAncestorStateOfType<State>();
-                              if (scaffold != null) {
-                                // Navigate to gallery tab
-                              }
-                            },
+                            onTap: () {},
                             child: Container(
                               width: 48,
                               height: 48,

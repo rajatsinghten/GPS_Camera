@@ -3,14 +3,14 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:image_gallery_saver_plus/image_gallery_saver_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 import '../models/gps_photo.dart';
 import '../providers/photo_provider.dart';
 import '../utils/theme.dart';
-import '../widgets/gps_info_overlay.dart';
-import '../widgets/map_snippet.dart';
+import '../widgets/gps_watermark.dart';
 
 class ReviewScreen extends StatefulWidget {
   final GpsPhoto photo;
@@ -59,6 +59,9 @@ class _ReviewScreenState extends State<ReviewScreen>
 
   Future<Uint8List?> _captureComposite() async {
     try {
+      // Wait for map tiles to load
+      await Future.delayed(const Duration(milliseconds: 500));
+
       final boundary = _compositeKey.currentContext?.findRenderObject()
           as RenderRepaintBoundary?;
       if (boundary == null) return null;
@@ -81,14 +84,26 @@ class _ReviewScreenState extends State<ReviewScreen>
       final bytes = await _captureComposite();
       if (bytes == null) throw Exception('Failed to capture composite');
 
+      // Save to phone gallery
+      final result = await ImageGallerySaverPlus.saveImage(
+        bytes,
+        quality: 100,
+        name: 'GPS_${DateTime.now().millisecondsSinceEpoch}',
+      );
+
+      final success = result != null && (result['isSuccess'] == true);
+
+      if (!success) {
+        throw Exception('Gallery save failed');
+      }
+
+      // Also save to app documents for in-app gallery
       final directory = await getApplicationDocumentsDirectory();
       final gpsDir = Directory('${directory.path}/gps_photos');
       if (!await gpsDir.exists()) {
         await gpsDir.create(recursive: true);
       }
-
-      final fileName =
-          'GPS_${DateTime.now().millisecondsSinceEpoch}.png';
+      final fileName = 'GPS_${DateTime.now().millisecondsSinceEpoch}.png';
       final file = File('${gpsDir.path}/$fileName');
       await file.writeAsBytes(bytes);
 
@@ -100,8 +115,12 @@ class _ReviewScreenState extends State<ReviewScreen>
           longitude: widget.photo.longitude,
           altitude: widget.photo.altitude,
           address: widget.photo.address,
+          locationName: widget.photo.locationName,
           timestamp: widget.photo.timestamp,
           compositePath: file.path,
+          windSpeed: widget.photo.windSpeed,
+          humidity: widget.photo.humidity,
+          magneticField: widget.photo.magneticField,
         );
         provider.addPhoto(savedPhoto);
 
@@ -116,7 +135,9 @@ class _ReviewScreenState extends State<ReviewScreen>
               children: [
                 Icon(Icons.check_circle, color: AppTheme.accentGreen, size: 18),
                 SizedBox(width: 8),
-                Text('Photo saved with GPS data'),
+                Expanded(
+                  child: Text('Photo saved to gallery with GPS data'),
+                ),
               ],
             ),
             backgroundColor: AppTheme.cardDark,
@@ -133,7 +154,7 @@ class _ReviewScreenState extends State<ReviewScreen>
         setState(() => _isSaving = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text('Failed to save photo'),
+            content: Text('Failed to save photo: $e'),
             backgroundColor: AppTheme.dangerRed,
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(
@@ -199,47 +220,35 @@ class _ReviewScreenState extends State<ReviewScreen>
                     key: _compositeKey,
                     child: Container(
                       decoration: BoxDecoration(
-                        color: AppTheme.cardDark,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: AppTheme.borderColor.withValues(alpha: 0.3),
-                          width: 0.5,
-                        ),
+                        color: Colors.black,
+                        borderRadius: BorderRadius.circular(4),
                       ),
                       clipBehavior: Clip.antiAlias,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
+                      child: Stack(
                         children: [
                           // Photo
-                          AspectRatio(
-                            aspectRatio: 4 / 3,
-                            child: Image.file(
-                              File(widget.photo.imagePath),
-                              fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) => Container(
-                                color: AppTheme.cardDark,
-                                child: const Center(
-                                  child: Icon(
-                                    Icons.broken_image_rounded,
-                                    color: AppTheme.textSecondary,
-                                    size: 48,
-                                  ),
+                          Image.file(
+                            File(widget.photo.imagePath),
+                            fit: BoxFit.cover,
+                            width: double.infinity,
+                            errorBuilder: (_, __, ___) => Container(
+                              color: AppTheme.cardDark,
+                              height: 400,
+                              child: const Center(
+                                child: Icon(
+                                  Icons.broken_image_rounded,
+                                  color: AppTheme.textSecondary,
+                                  size: 48,
                                 ),
                               ),
                             ),
                           ),
-                          // GPS info overlay
-                          GpsInfoOverlay(photo: widget.photo),
-                          // Map snippet
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                            child: MapSnippet(
-                              latitude: widget.photo.latitude,
-                              longitude: widget.photo.longitude,
-                              height: 160,
-                              zoom: 14,
-                              borderRadius: BorderRadius.circular(10),
-                            ),
+                          // Watermark positioned at bottom-right
+                          Positioned(
+                            bottom: 0,
+                            left: 0,
+                            right: 0,
+                            child: GpsWatermark(photo: widget.photo),
                           ),
                         ],
                       ),
@@ -288,7 +297,7 @@ class _ReviewScreenState extends State<ReviewScreen>
                         : Icons.save_rounded,
                     label: _saved
                         ? 'Saved ✓'
-                        : (_isSaving ? 'Saving...' : 'Save Photo'),
+                        : (_isSaving ? 'Saving...' : 'Save to Gallery'),
                     onTap: _saved ? null : _savePhoto,
                     isPrimary: true,
                     isLoading: _isSaving,
