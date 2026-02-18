@@ -1,13 +1,8 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
-import 'dart:ui' as ui;
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:image_gallery_saver_plus/image_gallery_saver_plus.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import '../models/gps_photo.dart';
 import '../providers/photo_provider.dart';
@@ -15,6 +10,7 @@ import '../services/location_service.dart';
 import '../services/telemetry_service.dart';
 import '../utils/theme.dart';
 import '../widgets/gps_watermark.dart';
+import 'review_screen.dart';
 
 class CameraScreen extends StatefulWidget {
   const CameraScreen({super.key});
@@ -45,10 +41,6 @@ class _CameraScreenState extends State<CameraScreen>
   double? _liveWindSpeed;
   double? _liveHumidity;
   double? _liveMagnetic;
-
-  // Composite rendering
-  final GlobalKey _compositeKey = GlobalKey();
-  GpsPhoto? _lastCapturedPhoto;
 
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
@@ -90,9 +82,7 @@ class _CameraScreenState extends State<CameraScreen>
   Future<void> _setupCamera(int index) async {
     if (_cameras.isEmpty) return;
 
-    if (mounted) {
-      setState(() => _isInitialized = false);
-    }
+    if (mounted) setState(() => _isInitialized = false);
 
     final oldController = _controller;
     _controller = null;
@@ -193,29 +183,7 @@ class _CameraScreenState extends State<CameraScreen>
     }
   }
 
-  GpsPhoto _buildCurrentPhoto(String imagePath) {
-    final pos = _currentPosition!;
-    final addressParts = _currentAddress.split(',');
-    final locationName = addressParts.length > 2
-        ? addressParts[2].trim()
-        : (addressParts.isNotEmpty ? addressParts[0].trim() : 'Unknown');
-
-    return GpsPhoto(
-      imagePath: imagePath,
-      latitude: pos.latitude,
-      longitude: pos.longitude,
-      altitude: pos.altitude != 0.0 ? pos.altitude : null,
-      address: _currentAddress,
-      locationName: locationName,
-      timestamp: DateTime.now(),
-      windSpeed: _liveWindSpeed,
-      humidity: _liveHumidity,
-      magneticField: _liveMagnetic,
-    );
-  }
-
-  /// Build the watermark as an off-screen widget, render to image, composite with photo
-  Future<void> _captureAndSave() async {
+  Future<void> _capturePhoto() async {
     if (_controller == null ||
         !_controller!.value.isInitialized ||
         _isCapturing ||
@@ -237,100 +205,52 @@ class _CameraScreenState extends State<CameraScreen>
     _flashController.forward().then((_) => _flashController.reverse());
 
     try {
-      // 1. Take photo
       final image = await _controller!.takePicture();
-      final photo = _buildCurrentPhoto(image.path);
+      final pos = _currentPosition!;
 
-      // 2. Set captured photo and trigger rebuild so off-screen composite renders
-      setState(() => _lastCapturedPhoto = photo);
+      final addressParts = _currentAddress.split(',');
+      final locationName = addressParts.length > 2
+          ? addressParts[2].trim()
+          : (addressParts.isNotEmpty ? addressParts[0].trim() : 'Unknown');
 
-      // 3. Wait for image to load in composite
-      await Future.delayed(const Duration(milliseconds: 500));
-
-      final boundary = _compositeKey.currentContext?.findRenderObject()
-          as RenderRepaintBoundary?;
-      if (boundary == null) throw Exception('Composite boundary not found');
-
-      final compositeImage = await boundary.toImage(pixelRatio: 3.0);
-      final byteData = await compositeImage.toByteData(format: ui.ImageByteFormat.png);
-      if (byteData == null) throw Exception('Failed to render composite');
-      final bytes = byteData.buffer.asUint8List();
-
-      // 4. Save to phone gallery
-      await ImageGallerySaverPlus.saveImage(
-        bytes,
-        quality: 100,
-        name: 'GPS_${DateTime.now().millisecondsSinceEpoch}',
+      final photo = GpsPhoto(
+        imagePath: image.path,
+        latitude: pos.latitude,
+        longitude: pos.longitude,
+        altitude: pos.altitude != 0.0 ? pos.altitude : null,
+        address: _currentAddress,
+        locationName: locationName,
+        timestamp: DateTime.now(),
+        windSpeed: _liveWindSpeed,
+        humidity: _liveHumidity,
+        magneticField: _liveMagnetic,
       );
 
-      // 5. Save to app documents for in-app gallery
-      final directory = await getApplicationDocumentsDirectory();
-      final gpsDir = Directory('${directory.path}/gps_photos');
-      if (!await gpsDir.exists()) await gpsDir.create(recursive: true);
-      final fileName = 'GPS_${DateTime.now().millisecondsSinceEpoch}.png';
-      final file = File('${gpsDir.path}/$fileName');
-      await file.writeAsBytes(bytes);
-
-      // 6. Add to provider
       if (mounted) {
-        final savedPhoto = GpsPhoto(
-          imagePath: image.path,
-          latitude: photo.latitude,
-          longitude: photo.longitude,
-          altitude: photo.altitude,
-          address: photo.address,
-          locationName: photo.locationName,
-          timestamp: photo.timestamp,
-          compositePath: file.path,
-          windSpeed: photo.windSpeed,
-          humidity: photo.humidity,
-          magneticField: photo.magneticField,
-        );
-        context.read<PhotoProvider>().addPhoto(savedPhoto);
-
-        setState(() {
-          _isCapturing = false;
-          _lastCapturedPhoto = null;
-        });
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Row(
-              children: [
-                Icon(Icons.check_circle, color: AppTheme.accentGreen, size: 18),
-                SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Photo saved to gallery',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
+        setState(() => _isCapturing = false);
+        Navigator.of(context).push(
+          PageRouteBuilder(
+            pageBuilder: (context, animation, secondaryAnimation) =>
+                ReviewScreen(photo: photo),
+            transitionsBuilder: (context, animation, secondaryAnimation, child) {
+              return FadeTransition(
+                opacity: animation,
+                child: SlideTransition(
+                  position: Tween<Offset>(
+                    begin: const Offset(0, 0.05),
+                    end: Offset.zero,
+                  ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOut)),
+                  child: child,
                 ),
-              ],
-            ),
-            backgroundColor: const Color(0xFF1E1E2E),
-            behavior: SnackBarBehavior.floating,
-            duration: const Duration(seconds: 2),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              );
+            },
+            transitionDuration: const Duration(milliseconds: 300),
           ),
         );
       }
     } catch (e) {
-      debugPrint('Capture/save error: $e');
-      if (mounted) {
-        setState(() => _isCapturing = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Save failed: $e', style: const TextStyle(color: Colors.white)),
-            backgroundColor: AppTheme.dangerRed,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          ),
-        );
-      }
+      debugPrint('Capture error: $e');
+      if (mounted) setState(() => _isCapturing = false);
     }
   }
 
@@ -362,10 +282,25 @@ class _CameraScreenState extends State<CameraScreen>
     super.dispose();
   }
 
-  /// Build a live GpsPhoto from current sensor data for the viewfinder overlay
   GpsPhoto? get _livePhoto {
     if (_currentPosition == null) return null;
-    return _buildCurrentPhoto('');
+    final pos = _currentPosition!;
+    final addressParts = _currentAddress.split(',');
+    final locationName = addressParts.length > 2
+        ? addressParts[2].trim()
+        : (addressParts.isNotEmpty ? addressParts[0].trim() : 'Unknown');
+    return GpsPhoto(
+      imagePath: '',
+      latitude: pos.latitude,
+      longitude: pos.longitude,
+      altitude: pos.altitude != 0.0 ? pos.altitude : null,
+      address: _currentAddress,
+      locationName: locationName,
+      timestamp: DateTime.now(),
+      windSpeed: _liveWindSpeed,
+      humidity: _liveHumidity,
+      magneticField: _liveMagnetic,
+    );
   }
 
   @override
@@ -377,7 +312,7 @@ class _CameraScreenState extends State<CameraScreen>
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // Camera preview with pinch-to-zoom (4:3 ratio)
+          // Camera preview (4:3 ratio)
           if (_isInitialized && _controller != null)
             Positioned.fill(
               child: Center(
@@ -415,7 +350,7 @@ class _CameraScreenState extends State<CameraScreen>
               ),
             ),
 
-          // Live GPS watermark overlay on viewfinder
+          // Live GPS watermark on viewfinder
           if (livePhoto != null)
             Positioned(
               bottom: 200,
@@ -615,7 +550,7 @@ class _CameraScreenState extends State<CameraScreen>
                       const SizedBox(width: 40),
                       // Shutter button
                       GestureDetector(
-                        onTap: _isCapturing ? null : _captureAndSave,
+                        onTap: _isCapturing ? null : _capturePhoto,
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 150),
                           width: 72,
@@ -653,48 +588,6 @@ class _CameraScreenState extends State<CameraScreen>
               ),
             ),
           ),
-
-          // OFF-SCREEN composite renderer (photo + watermark overlay)
-          if (_lastCapturedPhoto != null)
-            Positioned(
-              left: -4000,
-              top: -4000,
-              child: RepaintBoundary(
-                key: _compositeKey,
-                child: SizedBox(
-                  width: 1080,
-                  height: 1440,
-                  child: Stack(
-                    clipBehavior: Clip.none,
-                    children: [
-                      // Photo fills entire 4:3 area
-                      Positioned.fill(
-                        child: Image.file(
-                          File(_lastCapturedPhoto!.imagePath),
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => Container(color: Colors.black),
-                        ),
-                      ),
-                      // Watermark overlaid at bottom, scaled for legibility
-                      Positioned(
-                        bottom: 0,
-                        left: 0,
-                        right: 0,
-                        child: MediaQuery(
-                          data: const MediaQueryData(
-                            textScaler: TextScaler.linear(2.2),
-                          ),
-                          child: IconTheme(
-                            data: const IconThemeData(size: 28),
-                            child: GpsWatermark(photo: _lastCapturedPhoto!),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
         ],
       ),
     );

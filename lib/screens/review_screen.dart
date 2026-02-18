@@ -26,6 +26,7 @@ class _ReviewScreenState extends State<ReviewScreen>
   final GlobalKey _compositeKey = GlobalKey();
   bool _isSaving = false;
   bool _saved = false;
+  String? _savedFilePath;
   late AnimationController _slideController;
   late Animation<Offset> _slideAnimation;
   late Animation<double> _fadeAnimation;
@@ -34,11 +35,11 @@ class _ReviewScreenState extends State<ReviewScreen>
   void initState() {
     super.initState();
     _slideController = AnimationController(
-      duration: const Duration(milliseconds: 500),
+      duration: const Duration(milliseconds: 400),
       vsync: this,
     );
     _slideAnimation = Tween<Offset>(
-      begin: const Offset(0, 0.3),
+      begin: const Offset(0, 0.15),
       end: Offset.zero,
     ).animate(CurvedAnimation(
       parent: _slideController,
@@ -49,6 +50,11 @@ class _ReviewScreenState extends State<ReviewScreen>
       curve: Curves.easeOut,
     ));
     _slideController.forward();
+
+    // Auto-save after the widget tree renders
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _autoSave();
+    });
   }
 
   @override
@@ -57,11 +63,15 @@ class _ReviewScreenState extends State<ReviewScreen>
     super.dispose();
   }
 
+  Future<void> _autoSave() async {
+    // Wait for map tiles + image to render
+    await Future.delayed(const Duration(milliseconds: 800));
+    if (!mounted || _saved) return;
+    await _savePhoto();
+  }
+
   Future<Uint8List?> _captureComposite() async {
     try {
-      // Wait for map tiles to load
-      await Future.delayed(const Duration(milliseconds: 500));
-
       final boundary = _compositeKey.currentContext?.findRenderObject()
           as RenderRepaintBoundary?;
       if (boundary == null) return null;
@@ -76,39 +86,29 @@ class _ReviewScreenState extends State<ReviewScreen>
   }
 
   Future<void> _savePhoto() async {
-    if (_isSaving) return;
-
+    if (_isSaving || _saved) return;
     setState(() => _isSaving = true);
 
     try {
       final bytes = await _captureComposite();
       if (bytes == null) throw Exception('Failed to capture composite');
 
-      // Save to phone gallery
-      final result = await ImageGallerySaverPlus.saveImage(
+      // Save to gallery
+      await ImageGallerySaverPlus.saveImage(
         bytes,
         quality: 100,
         name: 'GPS_${DateTime.now().millisecondsSinceEpoch}',
       );
 
-      final success = result != null && (result['isSuccess'] == true);
-
-      if (!success) {
-        throw Exception('Gallery save failed');
-      }
-
-      // Also save to app documents for in-app gallery
+      // Save to app docs for in-app gallery
       final directory = await getApplicationDocumentsDirectory();
       final gpsDir = Directory('${directory.path}/gps_photos');
-      if (!await gpsDir.exists()) {
-        await gpsDir.create(recursive: true);
-      }
+      if (!await gpsDir.exists()) await gpsDir.create(recursive: true);
       final fileName = 'GPS_${DateTime.now().millisecondsSinceEpoch}.png';
       final file = File('${gpsDir.path}/$fileName');
       await file.writeAsBytes(bytes);
 
       if (mounted) {
-        final provider = context.read<PhotoProvider>();
         final savedPhoto = GpsPhoto(
           imagePath: widget.photo.imagePath,
           latitude: widget.photo.latitude,
@@ -122,38 +122,13 @@ class _ReviewScreenState extends State<ReviewScreen>
           humidity: widget.photo.humidity,
           magneticField: widget.photo.magneticField,
         );
-        provider.addPhoto(savedPhoto);
+        context.read<PhotoProvider>().addPhoto(savedPhoto);
 
         setState(() {
           _isSaving = false;
           _saved = true;
+          _savedFilePath = file.path;
         });
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const Icon(Icons.check_circle, color: AppTheme.accentGreen, size: 18),
-                const SizedBox(width: 8),
-                const Expanded(
-                  child: Text(
-                    'Photo saved to gallery with GPS data',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            backgroundColor: const Color(0xFF1E1E2E),
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
-          ),
-        );
       }
     } catch (e) {
       debugPrint('Save error: $e');
@@ -161,12 +136,10 @@ class _ReviewScreenState extends State<ReviewScreen>
         setState(() => _isSaving = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to save photo: $e'),
+            content: const Text('Save failed', style: TextStyle(color: Colors.white)),
             backgroundColor: AppTheme.dangerRed,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
         );
       }
@@ -175,19 +148,22 @@ class _ReviewScreenState extends State<ReviewScreen>
 
   Future<void> _sharePhoto() async {
     try {
-      final bytes = await _captureComposite();
+      Uint8List? bytes;
+      if (_savedFilePath != null) {
+        bytes = await File(_savedFilePath!).readAsBytes();
+      } else {
+        bytes = await _captureComposite();
+      }
       if (bytes == null) return;
 
       final tempDir = await getTemporaryDirectory();
-      final file = File(
-          '${tempDir.path}/GPS_Photo_${DateTime.now().millisecondsSinceEpoch}.png');
+      final file = File('${tempDir.path}/GPS_Photo_${DateTime.now().millisecondsSinceEpoch}.png');
       await file.writeAsBytes(bytes);
 
       await SharePlus.instance.share(
         ShareParams(
           files: [XFile(file.path)],
-          text:
-              '📍 ${widget.photo.address}\n📐 ${widget.photo.formattedCoordinates}',
+          text: '📍 ${widget.photo.address}\n📐 ${widget.photo.formattedCoordinates}',
         ),
       );
     } catch (e) {
@@ -215,10 +191,10 @@ class _ReviewScreenState extends State<ReviewScreen>
       ),
       body: Column(
         children: [
-          // Composite preview
+          // Composite preview (this is what gets captured)
           Expanded(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 12),
               child: FadeTransition(
                 opacity: _fadeAnimation,
                 child: SlideTransition(
@@ -242,15 +218,12 @@ class _ReviewScreenState extends State<ReviewScreen>
                               color: AppTheme.cardDark,
                               height: 400,
                               child: const Center(
-                                child: Icon(
-                                  Icons.broken_image_rounded,
-                                  color: AppTheme.textSecondary,
-                                  size: 48,
-                                ),
+                                child: Icon(Icons.broken_image_rounded,
+                                    color: AppTheme.textSecondary, size: 48),
                               ),
                             ),
                           ),
-                          // Watermark positioned at bottom-right
+                          // Watermark at bottom
                           Positioned(
                             bottom: 0,
                             left: 0,
@@ -266,7 +239,7 @@ class _ReviewScreenState extends State<ReviewScreen>
             ),
           ),
 
-          // Action buttons
+          // Save status bar
           Container(
             padding: EdgeInsets.only(
               left: 16,
@@ -295,17 +268,17 @@ class _ReviewScreenState extends State<ReviewScreen>
                   ),
                 ),
                 const SizedBox(width: 12),
-                // Save
+                // Save status
                 Expanded(
                   flex: 2,
                   child: _buildActionButton(
                     icon: _saved
                         ? Icons.check_circle_rounded
-                        : Icons.save_rounded,
+                        : (_isSaving ? Icons.hourglass_top_rounded : Icons.save_rounded),
                     label: _saved
-                        ? 'Saved ✓'
-                        : (_isSaving ? 'Saving...' : 'Save to Gallery'),
-                    onTap: _saved ? null : _savePhoto,
+                        ? 'Saved to Gallery'
+                        : (_isSaving ? 'Saving...' : 'Save'),
+                    onTap: _saved ? null : (_isSaving ? null : _savePhoto),
                     isPrimary: true,
                     isLoading: _isSaving,
                   ),
@@ -333,15 +306,15 @@ class _ReviewScreenState extends State<ReviewScreen>
         decoration: BoxDecoration(
           color: isPrimary
               ? (_saved
-                  ? AppTheme.accentGreen.withValues(alpha: 0.2)
-                  : AppTheme.accent.withValues(alpha: 0.15))
+                  ? AppTheme.accentGreen.withValues(alpha: 0.15)
+                  : AppTheme.accent.withValues(alpha: 0.12))
               : AppTheme.cardDark,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
             color: isPrimary
                 ? (_saved
-                    ? AppTheme.accentGreen.withValues(alpha: 0.5)
-                    : AppTheme.accent.withValues(alpha: 0.4))
+                    ? AppTheme.accentGreen.withValues(alpha: 0.4)
+                    : AppTheme.accent.withValues(alpha: 0.3))
                 : AppTheme.borderColor.withValues(alpha: 0.3),
             width: 0.5,
           ),
