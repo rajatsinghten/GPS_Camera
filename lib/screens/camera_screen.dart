@@ -377,13 +377,27 @@ class _CameraScreenState extends State<CameraScreen>
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // Camera preview with pinch-to-zoom
+          // Camera preview with pinch-to-zoom (4:3 ratio)
           if (_isInitialized && _controller != null)
             Positioned.fill(
-              child: GestureDetector(
-                onScaleStart: _onScaleStart,
-                onScaleUpdate: _onScaleUpdate,
-                child: CameraPreview(_controller!),
+              child: Center(
+                child: AspectRatio(
+                  aspectRatio: 3 / 4,
+                  child: GestureDetector(
+                    onScaleStart: _onScaleStart,
+                    onScaleUpdate: _onScaleUpdate,
+                    child: ClipRect(
+                      child: FittedBox(
+                        fit: BoxFit.cover,
+                        child: SizedBox(
+                          width: _controller!.value.previewSize?.height ?? 1080,
+                          height: _controller!.value.previewSize?.width ?? 1440,
+                          child: CameraPreview(_controller!),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               ),
             )
           else
@@ -640,29 +654,38 @@ class _CameraScreenState extends State<CameraScreen>
             ),
           ),
 
-          // OFF-SCREEN composite renderer (used to capture photo + watermark)
+          // OFF-SCREEN composite renderer (photo + watermark overlay)
           if (_lastCapturedPhoto != null)
             Positioned(
-              left: -2000,
-              top: -2000,
+              left: -4000,
+              top: -4000,
               child: RepaintBoundary(
                 key: _compositeKey,
                 child: SizedBox(
-                  width: 1080,
-                  child: Container(
-                    color: Colors.black,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Image.file(
+                  width: 1440,
+                  height: 1920,
+                  child: Stack(
+                    children: [
+                      // Photo fills entire area
+                      Positioned.fill(
+                        child: Image.file(
                           File(_lastCapturedPhoto!.imagePath),
-                          width: 1080,
-                          fit: BoxFit.fitWidth,
-                          errorBuilder: (_, __, ___) => const SizedBox(height: 400),
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => Container(color: Colors.black),
                         ),
-                        GpsWatermark(photo: _lastCapturedPhoto!),
-                      ],
-                    ),
+                      ),
+                      // Watermark at bottom, scaled up 2x for legibility
+                      Positioned(
+                        bottom: 0,
+                        left: 0,
+                        right: 0,
+                        child: Transform.scale(
+                          scale: 2.0,
+                          alignment: Alignment.bottomCenter,
+                          child: GpsWatermark(photo: _lastCapturedPhoto!),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
