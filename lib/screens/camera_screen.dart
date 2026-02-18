@@ -244,8 +244,8 @@ class _CameraScreenState extends State<CameraScreen>
       // 2. Set captured photo and trigger rebuild so off-screen composite renders
       setState(() => _lastCapturedPhoto = photo);
 
-      // 3. Wait for composite to render (map tiles + image load)
-      await Future.delayed(const Duration(milliseconds: 1200));
+      // 3. Wait for image to load in composite
+      await Future.delayed(const Duration(milliseconds: 500));
 
       final boundary = _compositeKey.currentContext?.findRenderObject()
           as RenderRepaintBoundary?;
@@ -301,7 +301,7 @@ class _CameraScreenState extends State<CameraScreen>
                 SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'Photo saved to gallery ✓',
+                    'Photo saved to gallery',
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 13,
@@ -662,11 +662,12 @@ class _CameraScreenState extends State<CameraScreen>
               child: RepaintBoundary(
                 key: _compositeKey,
                 child: SizedBox(
-                  width: 1440,
-                  height: 1920,
+                  width: 1080,
+                  height: 1440,
                   child: Stack(
+                    clipBehavior: Clip.none,
                     children: [
-                      // Photo fills entire area
+                      // Photo fills entire 4:3 area
                       Positioned.fill(
                         child: Image.file(
                           File(_lastCapturedPhoto!.imagePath),
@@ -674,15 +675,19 @@ class _CameraScreenState extends State<CameraScreen>
                           errorBuilder: (_, __, ___) => Container(color: Colors.black),
                         ),
                       ),
-                      // Watermark at bottom, scaled up 2x for legibility
+                      // Watermark overlaid at bottom, scaled for legibility
                       Positioned(
                         bottom: 0,
                         left: 0,
                         right: 0,
-                        child: Transform.scale(
-                          scale: 2.0,
-                          alignment: Alignment.bottomCenter,
-                          child: GpsWatermark(photo: _lastCapturedPhoto!),
+                        child: MediaQuery(
+                          data: const MediaQueryData(
+                            textScaler: TextScaler.linear(2.2),
+                          ),
+                          child: IconTheme(
+                            data: const IconThemeData(size: 28),
+                            child: GpsWatermark(photo: _lastCapturedPhoto!),
+                          ),
                         ),
                       ),
                     ],
