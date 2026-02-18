@@ -65,9 +65,6 @@ class _PermissionGateState extends State<PermissionGate> {
     _statuses = await [
       Permission.camera,
       Permission.location,
-      Permission.storage,
-      Permission.photos,
-      Permission.sensors,
     ].request();
 
     final allGranted = _statuses.values.every(

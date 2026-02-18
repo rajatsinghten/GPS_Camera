@@ -131,16 +131,23 @@ class _ReviewScreenState extends State<ReviewScreen>
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Row(
+            content: Row(
               children: [
-                Icon(Icons.check_circle, color: AppTheme.accentGreen, size: 18),
-                SizedBox(width: 8),
-                Expanded(
-                  child: Text('Photo saved to gallery with GPS data'),
+                const Icon(Icons.check_circle, color: AppTheme.accentGreen, size: 18),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'Photo saved to gallery with GPS data',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
                 ),
               ],
             ),
-            backgroundColor: AppTheme.cardDark,
+            backgroundColor: const Color(0xFF1E1E2E),
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(10),

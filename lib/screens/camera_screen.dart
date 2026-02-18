@@ -25,9 +25,17 @@ class _CameraScreenState extends State<CameraScreen>
   int _selectedCameraIndex = 0;
   bool _isInitialized = false;
   bool _isCapturing = false;
+  bool _isSwitching = false;
   Position? _currentPosition;
   String _currentAddress = 'Fetching location...';
   StreamSubscription<Position>? _positionStream;
+
+  // Zoom
+  double _currentZoom = 1.0;
+  double _minZoom = 1.0;
+  double _maxZoom = 1.0;
+  double _baseZoom = 1.0;
+
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
   late AnimationController _flashController;
@@ -58,9 +66,7 @@ class _CameraScreenState extends State<CameraScreen>
   Future<void> _initializeCamera() async {
     try {
       _cameras = await availableCameras();
-      if (_cameras.isEmpty) {
-        return;
-      }
+      if (_cameras.isEmpty) return;
       await _setupCamera(_selectedCameraIndex);
     } catch (e) {
       debugPrint('Camera initialization error: $e');
@@ -70,8 +76,19 @@ class _CameraScreenState extends State<CameraScreen>
   Future<void> _setupCamera(int index) async {
     if (_cameras.isEmpty) return;
 
-    final previousController = _controller;
+    // Step 1: Hide the preview FIRST so the widget tree stops using old controller
+    if (mounted) {
+      setState(() {
+        _isInitialized = false;
+      });
+    }
 
+    // Step 2: Dispose old controller AFTER it's no longer rendered
+    final oldController = _controller;
+    _controller = null;
+    await oldController?.dispose();
+
+    // Step 3: Create and initialize the new controller
     final controller = CameraController(
       _cameras[index],
       ResolutionPreset.high,
@@ -81,17 +98,46 @@ class _CameraScreenState extends State<CameraScreen>
 
     try {
       await controller.initialize();
-      await previousController?.dispose();
 
-      if (!mounted) return;
+      if (!mounted) {
+        controller.dispose();
+        return;
+      }
+
+      // Get zoom limits
+      final minZoom = await controller.getMinZoomLevel();
+      final maxZoom = await controller.getMaxZoomLevel();
 
       setState(() {
         _controller = controller;
         _selectedCameraIndex = index;
         _isInitialized = true;
+        _isSwitching = false;
+        _minZoom = minZoom;
+        _maxZoom = maxZoom;
+        _currentZoom = 1.0;
+        _baseZoom = 1.0;
       });
     } catch (e) {
       debugPrint('Camera setup error: $e');
+      if (mounted) {
+        setState(() => _isSwitching = false);
+      }
+    }
+  }
+
+  // Zoom handlers
+  void _onScaleStart(ScaleStartDetails details) {
+    _baseZoom = _currentZoom;
+  }
+
+  void _onScaleUpdate(ScaleUpdateDetails details) {
+    if (_controller == null || !_isInitialized) return;
+
+    final newZoom = (_baseZoom * details.scale).clamp(_minZoom, _maxZoom);
+    if (newZoom != _currentZoom) {
+      setState(() => _currentZoom = newZoom);
+      _controller!.setZoomLevel(newZoom);
     }
   }
 
@@ -99,29 +145,21 @@ class _CameraScreenState extends State<CameraScreen>
     final hasPermission = await LocationService.checkAndRequestPermission();
     if (!hasPermission) {
       if (mounted) {
-        setState(() {
-          _currentAddress = 'Location permission denied';
-        });
+        setState(() => _currentAddress = 'Location permission denied');
       }
       return;
     }
 
-    // Get initial position
     final position = await LocationService.getCurrentPosition();
     if (position != null && mounted) {
-      setState(() {
-        _currentPosition = position;
-      });
+      setState(() => _currentPosition = position);
       _updateAddress(position.latitude, position.longitude);
     }
 
-    // Start streaming
     _positionStream = LocationService.getPositionStream().listen(
       (position) {
         if (mounted) {
-          setState(() {
-            _currentPosition = position;
-          });
+          setState(() => _currentPosition = position);
           _updateAddress(position.latitude, position.longitude);
         }
       },
@@ -131,9 +169,7 @@ class _CameraScreenState extends State<CameraScreen>
   Future<void> _updateAddress(double lat, double lng) async {
     final address = await LocationService.getAddressFromCoordinates(lat, lng);
     if (mounted) {
-      setState(() {
-        _currentAddress = address;
-      });
+      setState(() => _currentAddress = address);
     }
   }
 
@@ -144,16 +180,12 @@ class _CameraScreenState extends State<CameraScreen>
       return;
     }
 
-    setState(() {
-      _isCapturing = true;
-    });
+    setState(() => _isCapturing = true);
 
-    // Flash effect
     _flashController.forward().then((_) => _flashController.reverse());
 
     try {
       final image = await _controller!.takePicture();
-
       final position =
           _currentPosition ?? await LocationService.getCurrentPosition();
 
@@ -161,7 +193,10 @@ class _CameraScreenState extends State<CameraScreen>
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: const Text('Unable to get GPS location'),
+              content: const Text(
+                'Unable to get GPS location',
+                style: TextStyle(color: Colors.white),
+              ),
               backgroundColor: AppTheme.dangerRed,
               behavior: SnackBarBehavior.floating,
               shape: RoundedRectangleBorder(
@@ -179,7 +214,6 @@ class _CameraScreenState extends State<CameraScreen>
         position.longitude,
       );
 
-      // Fetch telemetry data in parallel
       final results = await Future.wait([
         TelemetryService.getWeatherData(position.latitude, position.longitude),
         TelemetryService.getMagneticField(),
@@ -188,7 +222,6 @@ class _CameraScreenState extends State<CameraScreen>
       final weather = results[0] as WeatherData;
       final magnetic = results[1] as double?;
 
-      // Extract location name from address
       final addressParts = address.split(',');
       final locationName = addressParts.length > 2
           ? addressParts[2].trim()
@@ -242,16 +275,18 @@ class _CameraScreenState extends State<CameraScreen>
   }
 
   void _switchCamera() {
-    if (_cameras.length < 2) return;
+    if (_cameras.length < 2 || _isSwitching) return;
+    setState(() => _isSwitching = true);
     final newIndex = (_selectedCameraIndex + 1) % _cameras.length;
     _setupCamera(newIndex);
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (_controller == null || !_controller!.value.isInitialized) return;
     if (state == AppLifecycleState.inactive) {
       _controller?.dispose();
+      _controller = null;
+      if (mounted) setState(() => _isInitialized = false);
     } else if (state == AppLifecycleState.resumed) {
       _setupCamera(_selectedCameraIndex);
     }
@@ -274,24 +309,25 @@ class _CameraScreenState extends State<CameraScreen>
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // Camera preview
+          // Camera preview with pinch-to-zoom
           if (_isInitialized && _controller != null)
             Positioned.fill(
-              child: AspectRatio(
-                aspectRatio: _controller!.value.aspectRatio,
+              child: GestureDetector(
+                onScaleStart: _onScaleStart,
+                onScaleUpdate: _onScaleUpdate,
                 child: CameraPreview(_controller!),
               ),
             )
           else
-            const Center(
+            Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  CircularProgressIndicator(color: AppTheme.accent),
-                  SizedBox(height: 16),
+                  const CircularProgressIndicator(color: AppTheme.accent),
+                  const SizedBox(height: 16),
                   Text(
-                    'Initializing Camera...',
-                    style: TextStyle(
+                    _isSwitching ? 'Switching Camera...' : 'Initializing Camera...',
+                    style: const TextStyle(
                       color: AppTheme.textSecondary,
                       fontSize: 14,
                     ),
@@ -313,6 +349,38 @@ class _CameraScreenState extends State<CameraScreen>
               );
             },
           ),
+
+          // Zoom indicator
+          if (_isInitialized && _currentZoom > 1.0)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 60,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: AnimatedOpacity(
+                  opacity: _currentZoom > 1.0 ? 1.0 : 0.0,
+                  duration: const Duration(milliseconds: 200),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.6),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      '${_currentZoom.toStringAsFixed(1)}x',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
 
           // Top bar - GPS status
           Positioned(
@@ -409,10 +477,14 @@ class _CameraScreenState extends State<CameraScreen>
                             width: 0.5,
                           ),
                         ),
-                        child: const Icon(
-                          Icons.flip_camera_ios_rounded,
-                          color: Colors.white,
-                          size: 22,
+                        child: AnimatedRotation(
+                          turns: _isSwitching ? 0.5 : 0.0,
+                          duration: const Duration(milliseconds: 300),
+                          child: const Icon(
+                            Icons.flip_camera_ios_rounded,
+                            color: Colors.white,
+                            size: 22,
+                          ),
                         ),
                       ),
                     ),
@@ -446,6 +518,57 @@ class _CameraScreenState extends State<CameraScreen>
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  // Zoom slider
+                  if (_isInitialized && _maxZoom > 1.0)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Row(
+                        children: [
+                          const Text(
+                            '1x',
+                            style: TextStyle(
+                              color: Colors.white54,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          Expanded(
+                            child: SliderTheme(
+                              data: SliderThemeData(
+                                activeTrackColor: AppTheme.accent,
+                                inactiveTrackColor:
+                                    Colors.white.withValues(alpha: 0.15),
+                                thumbColor: Colors.white,
+                                thumbShape: const RoundSliderThumbShape(
+                                  enabledThumbRadius: 6,
+                                ),
+                                trackHeight: 2,
+                                overlayShape: const RoundSliderOverlayShape(
+                                  overlayRadius: 14,
+                                ),
+                              ),
+                              child: Slider(
+                                value: _currentZoom,
+                                min: _minZoom,
+                                max: _maxZoom,
+                                onChanged: (value) {
+                                  setState(() => _currentZoom = value);
+                                  _controller?.setZoomLevel(value);
+                                },
+                              ),
+                            ),
+                          ),
+                          Text(
+                            '${_maxZoom.toStringAsFixed(0)}x',
+                            style: const TextStyle(
+                              color: Colors.white54,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   // Location info
                   if (_currentPosition != null)
                     Container(
@@ -498,7 +621,7 @@ class _CameraScreenState extends State<CameraScreen>
                         ],
                       ),
                     ),
-                  // Capture button
+                  // Capture button row
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -513,8 +636,7 @@ class _CameraScreenState extends State<CameraScreen>
                               decoration: BoxDecoration(
                                 borderRadius: BorderRadius.circular(12),
                                 border: Border.all(
-                                  color:
-                                      Colors.white.withValues(alpha: 0.3),
+                                  color: Colors.white.withValues(alpha: 0.3),
                                   width: 1.5,
                                 ),
                               ),
@@ -525,8 +647,7 @@ class _CameraScreenState extends State<CameraScreen>
                                       child: Image.file(
                                         File(provider.photos.first
                                                 .compositePath ??
-                                            provider
-                                                .photos.first.imagePath),
+                                            provider.photos.first.imagePath),
                                         fit: BoxFit.cover,
                                       ),
                                     )
@@ -555,8 +676,7 @@ class _CameraScreenState extends State<CameraScreen>
                             ),
                             boxShadow: [
                               BoxShadow(
-                                color:
-                                    AppTheme.accent.withValues(alpha: 0.3),
+                                color: AppTheme.accent.withValues(alpha: 0.3),
                                 blurRadius: 20,
                                 spreadRadius: 2,
                               ),
@@ -586,7 +706,6 @@ class _CameraScreenState extends State<CameraScreen>
                         ),
                       ),
                       const SizedBox(width: 40),
-                      // Placeholder for balance
                       const SizedBox(width: 48, height: 48),
                     ],
                   ),
