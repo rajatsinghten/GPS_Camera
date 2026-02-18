@@ -42,6 +42,9 @@ class _CameraScreenState extends State<CameraScreen>
   double? _liveHumidity;
   double? _liveMagnetic;
 
+  // Flash
+  FlashMode _flashMode = FlashMode.off;
+
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
   late AnimationController _flashController;
@@ -261,6 +264,33 @@ class _CameraScreenState extends State<CameraScreen>
     _setupCamera(newIndex);
   }
 
+  void _toggleFlash() {
+    if (_controller == null || !_isInitialized) return;
+    final modes = [FlashMode.off, FlashMode.auto, FlashMode.always, FlashMode.torch];
+    final nextIndex = (modes.indexOf(_flashMode) + 1) % modes.length;
+    final next = modes[nextIndex];
+    _controller!.setFlashMode(next);
+    setState(() => _flashMode = next);
+  }
+
+  IconData get _flashIcon {
+    switch (_flashMode) {
+      case FlashMode.off: return Icons.flash_off_rounded;
+      case FlashMode.auto: return Icons.flash_auto_rounded;
+      case FlashMode.always: return Icons.flash_on_rounded;
+      case FlashMode.torch: return Icons.flashlight_on_rounded;
+    }
+  }
+
+  String get _flashLabel {
+    switch (_flashMode) {
+      case FlashMode.off: return 'OFF';
+      case FlashMode.auto: return 'AUTO';
+      case FlashMode.always: return 'ON';
+      case FlashMode.torch: return 'TORCH';
+    }
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.inactive) {
@@ -445,6 +475,46 @@ class _CameraScreenState extends State<CameraScreen>
                     },
                   ),
                   const Spacer(),
+                  // Flash toggle
+                  GestureDetector(
+                    onTap: _toggleFlash,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      margin: const EdgeInsets.only(right: 10),
+                      decoration: BoxDecoration(
+                        color: _flashMode != FlashMode.off
+                            ? Colors.amber.withValues(alpha: 0.2)
+                            : Colors.black.withValues(alpha: 0.4),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: _flashMode != FlashMode.off
+                              ? Colors.amber.withValues(alpha: 0.5)
+                              : Colors.white.withValues(alpha: 0.2),
+                          width: 0.5,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            _flashIcon,
+                            color: _flashMode != FlashMode.off ? Colors.amber : Colors.white,
+                            size: 18,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            _flashLabel,
+                            style: TextStyle(
+                              color: _flashMode != FlashMode.off ? Colors.amber : Colors.white70,
+                              fontSize: 9,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                   if (_cameras.length > 1)
                     GestureDetector(
                       onTap: _switchCamera,
