@@ -1,15 +1,20 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:image_gallery_saver_plus/image_gallery_saver_plus.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import '../models/gps_photo.dart';
 import '../providers/photo_provider.dart';
 import '../services/location_service.dart';
 import '../services/telemetry_service.dart';
 import '../utils/theme.dart';
-import 'review_screen.dart';
+import '../widgets/gps_watermark.dart';
 
 class CameraScreen extends StatefulWidget {
   const CameraScreen({super.key});
@@ -35,6 +40,15 @@ class _CameraScreenState extends State<CameraScreen>
   double _minZoom = 1.0;
   double _maxZoom = 1.0;
   double _baseZoom = 1.0;
+
+  // Live telemetry for viewfinder overlay
+  double? _liveWindSpeed;
+  double? _liveHumidity;
+  double? _liveMagnetic;
+
+  // Composite rendering
+  final GlobalKey _compositeKey = GlobalKey();
+  GpsPhoto? _lastCapturedPhoto;
 
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
@@ -76,19 +90,14 @@ class _CameraScreenState extends State<CameraScreen>
   Future<void> _setupCamera(int index) async {
     if (_cameras.isEmpty) return;
 
-    // Step 1: Hide the preview FIRST so the widget tree stops using old controller
     if (mounted) {
-      setState(() {
-        _isInitialized = false;
-      });
+      setState(() => _isInitialized = false);
     }
 
-    // Step 2: Dispose old controller AFTER it's no longer rendered
     final oldController = _controller;
     _controller = null;
     await oldController?.dispose();
 
-    // Step 3: Create and initialize the new controller
     final controller = CameraController(
       _cameras[index],
       ResolutionPreset.high,
@@ -98,13 +107,11 @@ class _CameraScreenState extends State<CameraScreen>
 
     try {
       await controller.initialize();
-
       if (!mounted) {
         controller.dispose();
         return;
       }
 
-      // Get zoom limits
       final minZoom = await controller.getMinZoomLevel();
       final maxZoom = await controller.getMaxZoomLevel();
 
@@ -120,20 +127,16 @@ class _CameraScreenState extends State<CameraScreen>
       });
     } catch (e) {
       debugPrint('Camera setup error: $e');
-      if (mounted) {
-        setState(() => _isSwitching = false);
-      }
+      if (mounted) setState(() => _isSwitching = false);
     }
   }
 
-  // Zoom handlers
   void _onScaleStart(ScaleStartDetails details) {
     _baseZoom = _currentZoom;
   }
 
   void _onScaleUpdate(ScaleUpdateDetails details) {
     if (_controller == null || !_isInitialized) return;
-
     final newZoom = (_baseZoom * details.scale).clamp(_minZoom, _maxZoom);
     if (newZoom != _currentZoom) {
       setState(() => _currentZoom = newZoom);
@@ -144,9 +147,7 @@ class _CameraScreenState extends State<CameraScreen>
   Future<void> _startLocationUpdates() async {
     final hasPermission = await LocationService.checkAndRequestPermission();
     if (!hasPermission) {
-      if (mounted) {
-        setState(() => _currentAddress = 'Location permission denied');
-      }
+      if (mounted) setState(() => _currentAddress = 'Location permission denied');
       return;
     }
 
@@ -154,6 +155,7 @@ class _CameraScreenState extends State<CameraScreen>
     if (position != null && mounted) {
       setState(() => _currentPosition = position);
       _updateAddress(position.latitude, position.longitude);
+      _fetchTelemetry(position.latitude, position.longitude);
     }
 
     _positionStream = LocationService.getPositionStream().listen(
@@ -168,108 +170,166 @@ class _CameraScreenState extends State<CameraScreen>
 
   Future<void> _updateAddress(double lat, double lng) async {
     final address = await LocationService.getAddressFromCoordinates(lat, lng);
-    if (mounted) {
-      setState(() => _currentAddress = address);
+    if (mounted) setState(() => _currentAddress = address);
+  }
+
+  Future<void> _fetchTelemetry(double lat, double lng) async {
+    try {
+      final results = await Future.wait([
+        TelemetryService.getWeatherData(lat, lng),
+        TelemetryService.getMagneticField(),
+      ]);
+      final weather = results[0] as WeatherData;
+      final magnetic = results[1] as double?;
+      if (mounted) {
+        setState(() {
+          _liveWindSpeed = weather.windSpeed;
+          _liveHumidity = weather.humidity;
+          _liveMagnetic = magnetic;
+        });
+      }
+    } catch (e) {
+      debugPrint('Telemetry fetch error: $e');
     }
   }
 
-  Future<void> _capturePhoto() async {
+  GpsPhoto _buildCurrentPhoto(String imagePath) {
+    final pos = _currentPosition!;
+    final addressParts = _currentAddress.split(',');
+    final locationName = addressParts.length > 2
+        ? addressParts[2].trim()
+        : (addressParts.isNotEmpty ? addressParts[0].trim() : 'Unknown');
+
+    return GpsPhoto(
+      imagePath: imagePath,
+      latitude: pos.latitude,
+      longitude: pos.longitude,
+      altitude: pos.altitude != 0.0 ? pos.altitude : null,
+      address: _currentAddress,
+      locationName: locationName,
+      timestamp: DateTime.now(),
+      windSpeed: _liveWindSpeed,
+      humidity: _liveHumidity,
+      magneticField: _liveMagnetic,
+    );
+  }
+
+  /// Build the watermark as an off-screen widget, render to image, composite with photo
+  Future<void> _captureAndSave() async {
     if (_controller == null ||
         !_controller!.value.isInitialized ||
-        _isCapturing) {
+        _isCapturing ||
+        _currentPosition == null) {
+      if (_currentPosition == null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Waiting for GPS location...', style: TextStyle(color: Colors.white)),
+            backgroundColor: AppTheme.dangerRed,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
       return;
     }
 
     setState(() => _isCapturing = true);
-
     _flashController.forward().then((_) => _flashController.reverse());
 
     try {
+      // 1. Take photo
       final image = await _controller!.takePicture();
-      final position =
-          _currentPosition ?? await LocationService.getCurrentPosition();
+      final photo = _buildCurrentPhoto(image.path);
 
-      if (position == null) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Text(
-                'Unable to get GPS location',
-                style: TextStyle(color: Colors.white),
-              ),
-              backgroundColor: AppTheme.dangerRed,
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-            ),
-          );
-          setState(() => _isCapturing = false);
-        }
-        return;
-      }
+      // 2. Set captured photo and trigger rebuild so off-screen composite renders
+      setState(() => _lastCapturedPhoto = photo);
 
-      final address = await LocationService.getAddressFromCoordinates(
-        position.latitude,
-        position.longitude,
+      // 3. Wait for composite to render (map tiles + image load)
+      await Future.delayed(const Duration(milliseconds: 1200));
+
+      final boundary = _compositeKey.currentContext?.findRenderObject()
+          as RenderRepaintBoundary?;
+      if (boundary == null) throw Exception('Composite boundary not found');
+
+      final compositeImage = await boundary.toImage(pixelRatio: 3.0);
+      final byteData = await compositeImage.toByteData(format: ui.ImageByteFormat.png);
+      if (byteData == null) throw Exception('Failed to render composite');
+      final bytes = byteData.buffer.asUint8List();
+
+      // 4. Save to phone gallery
+      await ImageGallerySaverPlus.saveImage(
+        bytes,
+        quality: 100,
+        name: 'GPS_${DateTime.now().millisecondsSinceEpoch}',
       );
 
-      final results = await Future.wait([
-        TelemetryService.getWeatherData(position.latitude, position.longitude),
-        TelemetryService.getMagneticField(),
-      ]);
+      // 5. Save to app documents for in-app gallery
+      final directory = await getApplicationDocumentsDirectory();
+      final gpsDir = Directory('${directory.path}/gps_photos');
+      if (!await gpsDir.exists()) await gpsDir.create(recursive: true);
+      final fileName = 'GPS_${DateTime.now().millisecondsSinceEpoch}.png';
+      final file = File('${gpsDir.path}/$fileName');
+      await file.writeAsBytes(bytes);
 
-      final weather = results[0] as WeatherData;
-      final magnetic = results[1] as double?;
-
-      final addressParts = address.split(',');
-      final locationName = addressParts.length > 2
-          ? addressParts[2].trim()
-          : (addressParts.isNotEmpty ? addressParts[0].trim() : 'Unknown');
-
-      final photo = GpsPhoto(
-        imagePath: image.path,
-        latitude: position.latitude,
-        longitude: position.longitude,
-        altitude: position.altitude != 0.0 ? position.altitude : null,
-        address: address,
-        locationName: locationName,
-        timestamp: DateTime.now(),
-        windSpeed: weather.windSpeed,
-        humidity: weather.humidity,
-        magneticField: magnetic,
-      );
-
+      // 6. Add to provider
       if (mounted) {
-        setState(() => _isCapturing = false);
-        Navigator.of(context).push(
-          PageRouteBuilder(
-            pageBuilder: (context, animation, secondaryAnimation) =>
-                ReviewScreen(photo: photo),
-            transitionsBuilder:
-                (context, animation, secondaryAnimation, child) {
-              return FadeTransition(
-                opacity: animation,
-                child: SlideTransition(
-                  position: Tween<Offset>(
-                    begin: const Offset(0, 0.05),
-                    end: Offset.zero,
-                  ).animate(CurvedAnimation(
-                    parent: animation,
-                    curve: Curves.easeOut,
-                  )),
-                  child: child,
+        final savedPhoto = GpsPhoto(
+          imagePath: image.path,
+          latitude: photo.latitude,
+          longitude: photo.longitude,
+          altitude: photo.altitude,
+          address: photo.address,
+          locationName: photo.locationName,
+          timestamp: photo.timestamp,
+          compositePath: file.path,
+          windSpeed: photo.windSpeed,
+          humidity: photo.humidity,
+          magneticField: photo.magneticField,
+        );
+        context.read<PhotoProvider>().addPhoto(savedPhoto);
+
+        setState(() {
+          _isCapturing = false;
+          _lastCapturedPhoto = null;
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Row(
+              children: [
+                Icon(Icons.check_circle, color: AppTheme.accentGreen, size: 18),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Photo saved to gallery ✓',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
                 ),
-              );
-            },
-            transitionDuration: const Duration(milliseconds: 300),
+              ],
+            ),
+            backgroundColor: const Color(0xFF1E1E2E),
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 2),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
         );
       }
     } catch (e) {
-      debugPrint('Capture error: $e');
+      debugPrint('Capture/save error: $e');
       if (mounted) {
         setState(() => _isCapturing = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Save failed: $e', style: const TextStyle(color: Colors.white)),
+            backgroundColor: AppTheme.dangerRed,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
       }
     }
   }
@@ -302,8 +362,16 @@ class _CameraScreenState extends State<CameraScreen>
     super.dispose();
   }
 
+  /// Build a live GpsPhoto from current sensor data for the viewfinder overlay
+  GpsPhoto? get _livePhoto {
+    if (_currentPosition == null) return null;
+    return _buildCurrentPhoto('');
+  }
+
   @override
   Widget build(BuildContext context) {
+    final livePhoto = _livePhoto;
+
     return Scaffold(
       backgroundColor: Colors.black,
       body: Stack(
@@ -327,12 +395,23 @@ class _CameraScreenState extends State<CameraScreen>
                   const SizedBox(height: 16),
                   Text(
                     _isSwitching ? 'Switching Camera...' : 'Initializing Camera...',
-                    style: const TextStyle(
-                      color: AppTheme.textSecondary,
-                      fontSize: 14,
-                    ),
+                    style: const TextStyle(color: AppTheme.textSecondary, fontSize: 14),
                   ),
                 ],
+              ),
+            ),
+
+          // Live GPS watermark overlay on viewfinder
+          if (livePhoto != null)
+            Positioned(
+              bottom: 200,
+              left: 0,
+              right: 0,
+              child: IgnorePointer(
+                child: Opacity(
+                  opacity: 0.85,
+                  child: GpsWatermark(photo: livePhoto),
+                ),
               ),
             ),
 
@@ -342,9 +421,7 @@ class _CameraScreenState extends State<CameraScreen>
             builder: (context, child) {
               return IgnorePointer(
                 child: Container(
-                  color: Colors.white.withValues(
-                    alpha: _flashAnimation.value * 0.7,
-                  ),
+                  color: Colors.white.withValues(alpha: _flashAnimation.value * 0.7),
                 ),
               );
             },
@@ -357,26 +434,15 @@ class _CameraScreenState extends State<CameraScreen>
               left: 0,
               right: 0,
               child: Center(
-                child: AnimatedOpacity(
-                  opacity: _currentZoom > 1.0 ? 1.0 : 0.0,
-                  duration: const Duration(milliseconds: 200),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.6),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      '${_currentZoom.toStringAsFixed(1)}x',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.6),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    '${_currentZoom.toStringAsFixed(1)}x',
+                    style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600),
                   ),
                 ),
               ),
@@ -398,64 +464,31 @@ class _CameraScreenState extends State<CameraScreen>
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.black.withValues(alpha: 0.7),
-                    Colors.transparent,
-                  ],
+                  colors: [Colors.black.withValues(alpha: 0.7), Colors.transparent],
                 ),
               ),
               child: Row(
                 children: [
-                  // GPS indicator
                   AnimatedBuilder(
                     animation: _pulseAnimation,
                     builder: (context, child) {
+                      final hasGps = _currentPosition != null;
+                      final color = hasGps ? AppTheme.accentGreen : AppTheme.dangerRed;
                       return Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 5,
-                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                         decoration: BoxDecoration(
-                          color: (_currentPosition != null
-                                  ? AppTheme.accentGreen
-                                  : AppTheme.dangerRed)
-                              .withValues(
-                            alpha: 0.2 * _pulseAnimation.value,
-                          ),
+                          color: color.withValues(alpha: 0.2 * _pulseAnimation.value),
                           borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                            color: (_currentPosition != null
-                                    ? AppTheme.accentGreen
-                                    : AppTheme.dangerRed)
-                                .withValues(alpha: 0.5),
-                            width: 0.5,
-                          ),
+                          border: Border.all(color: color.withValues(alpha: 0.5), width: 0.5),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(
-                              _currentPosition != null
-                                  ? Icons.gps_fixed
-                                  : Icons.gps_not_fixed,
-                              color: _currentPosition != null
-                                  ? AppTheme.accentGreen
-                                  : AppTheme.dangerRed,
-                              size: 14,
-                            ),
+                            Icon(hasGps ? Icons.gps_fixed : Icons.gps_not_fixed, color: color, size: 14),
                             const SizedBox(width: 6),
                             Text(
-                              _currentPosition != null
-                                  ? 'GPS LOCKED'
-                                  : 'SEARCHING',
-                              style: TextStyle(
-                                color: _currentPosition != null
-                                    ? AppTheme.accentGreen
-                                    : AppTheme.dangerRed,
-                                fontSize: 10,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: 1,
-                              ),
+                              hasGps ? 'GPS LOCKED' : 'SEARCHING',
+                              style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 1),
                             ),
                           ],
                         ),
@@ -463,7 +496,6 @@ class _CameraScreenState extends State<CameraScreen>
                     },
                   ),
                   const Spacer(),
-                  // Camera switch
                   if (_cameras.length > 1)
                     GestureDetector(
                       onTap: _switchCamera,
@@ -472,19 +504,12 @@ class _CameraScreenState extends State<CameraScreen>
                         decoration: BoxDecoration(
                           color: Colors.black.withValues(alpha: 0.4),
                           shape: BoxShape.circle,
-                          border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.2),
-                            width: 0.5,
-                          ),
+                          border: Border.all(color: Colors.white.withValues(alpha: 0.2), width: 0.5),
                         ),
                         child: AnimatedRotation(
                           turns: _isSwitching ? 0.5 : 0.0,
                           duration: const Duration(milliseconds: 300),
-                          child: const Icon(
-                            Icons.flip_camera_ios_rounded,
-                            color: Colors.white,
-                            size: 22,
-                          ),
+                          child: const Icon(Icons.flip_camera_ios_rounded, color: Colors.white, size: 22),
                         ),
                       ),
                     ),
@@ -509,10 +534,7 @@ class _CameraScreenState extends State<CameraScreen>
                 gradient: LinearGradient(
                   begin: Alignment.bottomCenter,
                   end: Alignment.topCenter,
-                  colors: [
-                    Colors.black.withValues(alpha: 0.8),
-                    Colors.transparent,
-                  ],
+                  colors: [Colors.black.withValues(alpha: 0.8), Colors.transparent],
                 ),
               ),
               child: Column(
@@ -524,28 +546,16 @@ class _CameraScreenState extends State<CameraScreen>
                       padding: const EdgeInsets.only(bottom: 12),
                       child: Row(
                         children: [
-                          const Text(
-                            '1x',
-                            style: TextStyle(
-                              color: Colors.white54,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
+                          const Text('1x', style: TextStyle(color: Colors.white54, fontSize: 11, fontWeight: FontWeight.w600)),
                           Expanded(
                             child: SliderTheme(
                               data: SliderThemeData(
                                 activeTrackColor: AppTheme.accent,
-                                inactiveTrackColor:
-                                    Colors.white.withValues(alpha: 0.15),
+                                inactiveTrackColor: Colors.white.withValues(alpha: 0.15),
                                 thumbColor: Colors.white,
-                                thumbShape: const RoundSliderThumbShape(
-                                  enabledThumbRadius: 6,
-                                ),
+                                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
                                 trackHeight: 2,
-                                overlayShape: const RoundSliderOverlayShape(
-                                  overlayRadius: 14,
-                                ),
+                                overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
                               ),
                               child: Slider(
                                 value: _currentZoom,
@@ -558,66 +568,7 @@ class _CameraScreenState extends State<CameraScreen>
                               ),
                             ),
                           ),
-                          Text(
-                            '${_maxZoom.toStringAsFixed(0)}x',
-                            style: const TextStyle(
-                              color: Colors.white54,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  // Location info
-                  if (_currentPosition != null)
-                    Container(
-                      margin: const EdgeInsets.only(bottom: 16),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 8,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.5),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: AppTheme.accent.withValues(alpha: 0.2),
-                          width: 0.5,
-                        ),
-                      ),
-                      child: Column(
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Icon(
-                                Icons.my_location_rounded,
-                                color: AppTheme.accent,
-                                size: 12,
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                '${_currentPosition!.latitude.toStringAsFixed(6)}, ${_currentPosition!.longitude.toStringAsFixed(6)}',
-                                style: const TextStyle(
-                                  color: AppTheme.accent,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  fontFamily: 'monospace',
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            _currentAddress,
-                            style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.6),
-                              fontSize: 10,
-                            ),
-                            textAlign: TextAlign.center,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
+                          Text('${_maxZoom.toStringAsFixed(0)}x', style: const TextStyle(color: Colors.white54, fontSize: 11, fontWeight: FontWeight.w600)),
                         ],
                       ),
                     ),
@@ -628,77 +579,52 @@ class _CameraScreenState extends State<CameraScreen>
                       // Gallery shortcut
                       Consumer<PhotoProvider>(
                         builder: (context, provider, _) {
-                          return GestureDetector(
-                            onTap: () {},
-                            child: Container(
-                              width: 48,
-                              height: 48,
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: Colors.white.withValues(alpha: 0.3),
-                                  width: 1.5,
-                                ),
-                              ),
-                              child: provider.photos.isNotEmpty
-                                  ? ClipRRect(
-                                      borderRadius:
-                                          BorderRadius.circular(10),
-                                      child: Image.file(
-                                        File(provider.photos.first
-                                                .compositePath ??
-                                            provider.photos.first.imagePath),
-                                        fit: BoxFit.cover,
-                                      ),
-                                    )
-                                  : const Icon(
-                                      Icons.photo_library_rounded,
-                                      color: Colors.white54,
-                                      size: 22,
-                                    ),
+                          return Container(
+                            width: 48,
+                            height: 48,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.white.withValues(alpha: 0.3), width: 1.5),
                             ),
+                            child: provider.photos.isNotEmpty
+                                ? ClipRRect(
+                                    borderRadius: BorderRadius.circular(10),
+                                    child: Image.file(
+                                      File(provider.photos.first.compositePath ?? provider.photos.first.imagePath),
+                                      fit: BoxFit.cover,
+                                    ),
+                                  )
+                                : const Icon(Icons.photo_library_rounded, color: Colors.white54, size: 22),
                           );
                         },
                       ),
                       const SizedBox(width: 40),
                       // Shutter button
                       GestureDetector(
-                        onTap: _isCapturing ? null : _capturePhoto,
+                        onTap: _isCapturing ? null : _captureAndSave,
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 150),
                           width: 72,
                           height: 72,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            border: Border.all(
-                              color: Colors.white,
-                              width: 3,
-                            ),
+                            border: Border.all(color: Colors.white, width: 3),
                             boxShadow: [
-                              BoxShadow(
-                                color: AppTheme.accent.withValues(alpha: 0.3),
-                                blurRadius: 20,
-                                spreadRadius: 2,
-                              ),
+                              BoxShadow(color: AppTheme.accent.withValues(alpha: 0.3), blurRadius: 20, spreadRadius: 2),
                             ],
                           ),
                           child: Container(
                             margin: const EdgeInsets.all(4),
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              color: _isCapturing
-                                  ? AppTheme.dangerRed
-                                  : Colors.white,
+                              color: _isCapturing ? AppTheme.dangerRed : Colors.white,
                             ),
                             child: _isCapturing
                                 ? const Center(
                                     child: SizedBox(
                                       width: 24,
                                       height: 24,
-                                      child: CircularProgressIndicator(
-                                        color: Colors.white,
-                                        strokeWidth: 2,
-                                      ),
+                                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
                                     ),
                                   )
                                 : null,
@@ -713,6 +639,34 @@ class _CameraScreenState extends State<CameraScreen>
               ),
             ),
           ),
+
+          // OFF-SCREEN composite renderer (used to capture photo + watermark)
+          if (_lastCapturedPhoto != null)
+            Positioned(
+              left: -2000,
+              top: -2000,
+              child: RepaintBoundary(
+                key: _compositeKey,
+                child: SizedBox(
+                  width: 1080,
+                  child: Container(
+                    color: Colors.black,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Image.file(
+                          File(_lastCapturedPhoto!.imagePath),
+                          width: 1080,
+                          fit: BoxFit.fitWidth,
+                          errorBuilder: (_, __, ___) => const SizedBox(height: 400),
+                        ),
+                        GpsWatermark(photo: _lastCapturedPhoto!),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
