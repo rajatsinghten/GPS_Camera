@@ -46,6 +46,8 @@ dependencies:
   flutter_map: ^8.2.2
   latlong2: ^0.9.1
   http: ^1.6.0
+  image_gallery_saver_plus: ^4.0.1
+  sensors_plus: ^7.0.0
 
 dev_dependencies:
   flutter_test:
