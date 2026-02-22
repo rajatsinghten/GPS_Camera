@@ -4,6 +4,7 @@ import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:provider/provider.dart';
+import 'package:sensors_plus/sensors_plus.dart';
 import '../models/gps_photo.dart';
 import '../providers/photo_provider.dart';
 import '../services/location_service.dart';
@@ -11,6 +12,8 @@ import '../services/telemetry_service.dart';
 import '../utils/theme.dart';
 import '../widgets/gps_watermark.dart';
 import 'review_screen.dart';
+
+enum WatermarkMode { auto, portrait, landscape }
 
 class CameraScreen extends StatefulWidget {
   const CameraScreen({super.key});
@@ -45,6 +48,11 @@ class _CameraScreenState extends State<CameraScreen>
   // Flash
   FlashMode _flashMode = FlashMode.off;
 
+  // Watermark Orientation
+  WatermarkMode _watermarkMode = WatermarkMode.portrait;
+  int _currentQuarterTurns = 0;
+  StreamSubscription<AccelerometerEvent>? _accelSubscription;
+
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
   late AnimationController _flashController;
@@ -54,6 +62,20 @@ class _CameraScreenState extends State<CameraScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _accelSubscription = accelerometerEventStream().listen((event) {
+      if (_watermarkMode == WatermarkMode.auto) {
+        int newTurns = 0;
+        if (event.x.abs() > 4.5) {
+          // landscape
+          newTurns = event.x > 0 ? 3 : 1;
+        } else if (event.y.abs() > 4.5) {
+          newTurns = 0;
+        }
+        if (_currentQuarterTurns != newTurns && mounted) {
+          setState(() => _currentQuarterTurns = newTurns);
+        }
+      }
+    });
     _pulseController = AnimationController(
       duration: const Duration(milliseconds: 1500),
       vsync: this,
@@ -227,6 +249,7 @@ class _CameraScreenState extends State<CameraScreen>
         windSpeed: _liveWindSpeed,
         humidity: _liveHumidity,
         magneticField: _liveMagnetic,
+        watermarkRotation: _currentQuarterTurns,
       );
 
       if (mounted) {
@@ -305,6 +328,7 @@ class _CameraScreenState extends State<CameraScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _accelSubscription?.cancel();
     _controller?.dispose();
     _positionStream?.cancel();
     _pulseController.dispose();
@@ -330,6 +354,7 @@ class _CameraScreenState extends State<CameraScreen>
       windSpeed: _liveWindSpeed,
       humidity: _liveHumidity,
       magneticField: _liveMagnetic,
+      watermarkRotation: _currentQuarterTurns,
     );
   }
 
@@ -383,9 +408,10 @@ class _CameraScreenState extends State<CameraScreen>
           // Live GPS watermark on viewfinder
           if (livePhoto != null)
             Positioned(
-              bottom: 200,
-              left: 0,
-              right: 0,
+              bottom: (_currentQuarterTurns == 0 || _currentQuarterTurns == 1 || _currentQuarterTurns == 3) ? (_currentQuarterTurns == 0 ? 180.0 : 120.0) : null,
+              top: (_currentQuarterTurns == 2 || _currentQuarterTurns == 1 || _currentQuarterTurns == 3) ? (_currentQuarterTurns == 2 ? 140.0 : 120.0) : null,
+              left: (_currentQuarterTurns == 0 || _currentQuarterTurns == 2 || _currentQuarterTurns == 3) ? 0.0 : null,
+              right: (_currentQuarterTurns == 0 || _currentQuarterTurns == 2 || _currentQuarterTurns == 1) ? 0.0 : null,
               child: IgnorePointer(
                 child: Opacity(
                   opacity: 0.85,
@@ -453,13 +479,8 @@ class _CameraScreenState extends State<CameraScreen>
                     builder: (context, child) {
                       final hasGps = _currentPosition != null;
                       final color = hasGps ? AppTheme.accentGreen : AppTheme.dangerRed;
-                      return Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                        decoration: BoxDecoration(
-                          color: color.withValues(alpha: 0.2 * _pulseAnimation.value),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: color.withValues(alpha: 0.5), width: 0.5),
-                        ),
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 5),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
@@ -475,6 +496,60 @@ class _CameraScreenState extends State<CameraScreen>
                     },
                   ),
                   const Spacer(),
+                  // Rotation toggle
+                  GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        if (_watermarkMode == WatermarkMode.auto) {
+                          _watermarkMode = WatermarkMode.portrait;
+                          _currentQuarterTurns = 0;
+                        } else if (_watermarkMode == WatermarkMode.portrait) {
+                          _watermarkMode = WatermarkMode.landscape;
+                          _currentQuarterTurns = 1;
+                        } else {
+                          _watermarkMode = WatermarkMode.auto;
+                        }
+                      });
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      margin: const EdgeInsets.only(right: 10),
+                      decoration: BoxDecoration(
+                        color: _watermarkMode != WatermarkMode.portrait
+                            ? Colors.blue.withValues(alpha: 0.2)
+                            : Colors.black.withValues(alpha: 0.4),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: _watermarkMode != WatermarkMode.portrait
+                              ? Colors.blue.withValues(alpha: 0.5)
+                              : Colors.white.withValues(alpha: 0.2),
+                          width: 0.5,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            _watermarkMode == WatermarkMode.auto
+                                ? Icons.screen_rotation_rounded
+                                : (_watermarkMode == WatermarkMode.landscape ? Icons.landscape_rounded : Icons.portrait_rounded),
+                            color: _watermarkMode != WatermarkMode.portrait ? Colors.blue : Colors.white,
+                            size: 18,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            _watermarkMode.name.toUpperCase(),
+                            style: TextStyle(
+                              color: _watermarkMode != WatermarkMode.portrait ? Colors.blue : Colors.white70,
+                              fontSize: 9,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                   // Flash toggle
                   GestureDetector(
                     onTap: _toggleFlash,

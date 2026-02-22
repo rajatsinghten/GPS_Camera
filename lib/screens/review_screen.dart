@@ -50,24 +50,12 @@ class _ReviewScreenState extends State<ReviewScreen>
       curve: Curves.easeOut,
     ));
     _slideController.forward();
-
-    // Auto-save after the widget tree renders
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _autoSave();
-    });
   }
 
   @override
   void dispose() {
     _slideController.dispose();
     super.dispose();
-  }
-
-  Future<void> _autoSave() async {
-    // Wait for map tiles + image to render
-    await Future.delayed(const Duration(milliseconds: 800));
-    if (!mounted || _saved) return;
-    await _savePhoto();
   }
 
   Future<Uint8List?> _captureComposite() async {
@@ -223,11 +211,12 @@ class _ReviewScreenState extends State<ReviewScreen>
                               ),
                             ),
                           ),
-                          // Watermark at bottom
+                          // Watermark positioned based on rotation
                           Positioned(
-                            bottom: 0,
-                            left: 0,
-                            right: 0,
+                            bottom: (widget.photo.watermarkRotation == 0 || widget.photo.watermarkRotation == 1 || widget.photo.watermarkRotation == 3) ? 0.0 : null,
+                            top: (widget.photo.watermarkRotation == 2 || widget.photo.watermarkRotation == 1 || widget.photo.watermarkRotation == 3) ? 0.0 : null,
+                            left: (widget.photo.watermarkRotation == 0 || widget.photo.watermarkRotation == 2 || widget.photo.watermarkRotation == 3) ? 0.0 : null,
+                            right: (widget.photo.watermarkRotation == 0 || widget.photo.watermarkRotation == 2 || widget.photo.watermarkRotation == 1) ? 0.0 : null,
                             child: GpsWatermark(photo: widget.photo),
                           ),
                         ],

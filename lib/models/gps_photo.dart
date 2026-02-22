@@ -10,6 +10,7 @@ class GpsPhoto {
   final double? windSpeed;
   final double? humidity;
   final double? magneticField;
+  final int watermarkRotation;
 
   GpsPhoto({
     required this.imagePath,
@@ -23,6 +24,7 @@ class GpsPhoto {
     this.windSpeed,
     this.humidity,
     this.magneticField,
+    this.watermarkRotation = 0,
   });
 
   String get formattedCoordinates {

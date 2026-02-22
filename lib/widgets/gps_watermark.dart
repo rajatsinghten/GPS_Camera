@@ -13,14 +13,16 @@ class GpsWatermark extends StatelessWidget {
   Widget build(BuildContext context) {
     final dateFormat = DateFormat('dd MMMM yyyy HH:mm:ss');
 
-    return Container(
-      margin: const EdgeInsets.all(8),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.75),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: IntrinsicHeight(
+    return RotatedBox(
+      quarterTurns: photo.watermarkRotation,
+      child: Container(
+        margin: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.75),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: IntrinsicHeight(
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -126,7 +128,7 @@ class GpsWatermark extends StatelessWidget {
           ],
         ),
       ),
-    );
+    ));
   }
 
   Widget _buildMapCutout() {
