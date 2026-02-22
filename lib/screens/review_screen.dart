@@ -215,8 +215,8 @@ class _ReviewScreenState extends State<ReviewScreen>
                           Positioned(
                             bottom: (widget.photo.watermarkRotation == 0 || widget.photo.watermarkRotation == 1 || widget.photo.watermarkRotation == 3) ? 0.0 : null,
                             top: (widget.photo.watermarkRotation == 2 || widget.photo.watermarkRotation == 1 || widget.photo.watermarkRotation == 3) ? 0.0 : null,
-                            left: (widget.photo.watermarkRotation == 0 || widget.photo.watermarkRotation == 2 || widget.photo.watermarkRotation == 3) ? 0.0 : null,
-                            right: (widget.photo.watermarkRotation == 0 || widget.photo.watermarkRotation == 2 || widget.photo.watermarkRotation == 1) ? 0.0 : null,
+                            left: (widget.photo.watermarkRotation == 0 || widget.photo.watermarkRotation == 2 || widget.photo.watermarkRotation == 1) ? 0.0 : null,
+                            right: (widget.photo.watermarkRotation == 0 || widget.photo.watermarkRotation == 2 || widget.photo.watermarkRotation == 3) ? 0.0 : null,
                             child: GpsWatermark(photo: widget.photo),
                           ),
                         ],

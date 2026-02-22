@@ -67,9 +67,9 @@ class _CameraScreenState extends State<CameraScreen>
         int newTurns = 0;
         if (event.x.abs() > 4.5) {
           // landscape
-          newTurns = event.x > 0 ? 3 : 1;
+          newTurns = event.x > 0 ? 1 : 3;
         } else if (event.y.abs() > 4.5) {
-          newTurns = 0;
+          newTurns = event.y > 0 ? 0 : 2;
         }
         if (_currentQuarterTurns != newTurns && mounted) {
           setState(() => _currentQuarterTurns = newTurns);
@@ -410,8 +410,8 @@ class _CameraScreenState extends State<CameraScreen>
             Positioned(
               bottom: (_currentQuarterTurns == 0 || _currentQuarterTurns == 1 || _currentQuarterTurns == 3) ? (_currentQuarterTurns == 0 ? 180.0 : 120.0) : null,
               top: (_currentQuarterTurns == 2 || _currentQuarterTurns == 1 || _currentQuarterTurns == 3) ? (_currentQuarterTurns == 2 ? 140.0 : 120.0) : null,
-              left: (_currentQuarterTurns == 0 || _currentQuarterTurns == 2 || _currentQuarterTurns == 3) ? 0.0 : null,
-              right: (_currentQuarterTurns == 0 || _currentQuarterTurns == 2 || _currentQuarterTurns == 1) ? 0.0 : null,
+              left: (_currentQuarterTurns == 0 || _currentQuarterTurns == 2 || _currentQuarterTurns == 1) ? 0.0 : null,
+              right: (_currentQuarterTurns == 0 || _currentQuarterTurns == 2 || _currentQuarterTurns == 3) ? 0.0 : null,
               child: IgnorePointer(
                 child: Opacity(
                   opacity: 0.85,
