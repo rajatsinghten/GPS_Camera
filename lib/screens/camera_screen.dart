@@ -408,8 +408,8 @@ class _CameraScreenState extends State<CameraScreen>
           // Live GPS watermark on viewfinder
           if (livePhoto != null)
             Positioned(
-              bottom: (_currentQuarterTurns == 0 || _currentQuarterTurns == 1 || _currentQuarterTurns == 3) ? (_currentQuarterTurns == 0 ? 180.0 : 120.0) : null,
-              top: (_currentQuarterTurns == 2 || _currentQuarterTurns == 1 || _currentQuarterTurns == 3) ? (_currentQuarterTurns == 2 ? 140.0 : 120.0) : null,
+              bottom: (_currentQuarterTurns == 0 || _currentQuarterTurns == 1 || _currentQuarterTurns == 3) ? (_currentQuarterTurns == 0 ? 180.0 : 160.0) : null,
+              top: (_currentQuarterTurns == 2 || _currentQuarterTurns == 1 || _currentQuarterTurns == 3) ? (_currentQuarterTurns == 2 ? 140.0 : 160.0) : null,
               left: (_currentQuarterTurns == 0 || _currentQuarterTurns == 2 || _currentQuarterTurns == 1) ? 0.0 : null,
               right: (_currentQuarterTurns == 0 || _currentQuarterTurns == 2 || _currentQuarterTurns == 3) ? 0.0 : null,
               child: IgnorePointer(
