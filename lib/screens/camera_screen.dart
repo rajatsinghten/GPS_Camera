@@ -1,12 +1,12 @@
 import 'dart:async';
-import 'dart:io';
+
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:provider/provider.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 import '../models/gps_photo.dart';
-import '../providers/photo_provider.dart';
+
 import '../services/location_service.dart';
 import '../services/telemetry_service.dart';
 import '../utils/theme.dart';
@@ -670,29 +670,6 @@ class _CameraScreenState extends State<CameraScreen>
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      // Gallery shortcut
-                      Consumer<PhotoProvider>(
-                        builder: (context, provider, _) {
-                          return Container(
-                            width: 48,
-                            height: 48,
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: Colors.white.withValues(alpha: 0.3), width: 1.5),
-                            ),
-                            child: provider.photos.isNotEmpty
-                                ? ClipRRect(
-                                    borderRadius: BorderRadius.circular(10),
-                                    child: Image.file(
-                                      File(provider.photos.first.compositePath ?? provider.photos.first.imagePath),
-                                      fit: BoxFit.cover,
-                                    ),
-                                  )
-                                : const Icon(Icons.photo_library_rounded, color: Colors.white54, size: 22),
-                          );
-                        },
-                      ),
-                      const SizedBox(width: 40),
                       // Shutter button
                       GestureDetector(
                         onTap: _isCapturing ? null : _capturePhoto,
@@ -725,8 +702,6 @@ class _CameraScreenState extends State<CameraScreen>
                           ),
                         ),
                       ),
-                      const SizedBox(width: 40),
-                      const SizedBox(width: 48, height: 48),
                     ],
                   ),
                 ],
