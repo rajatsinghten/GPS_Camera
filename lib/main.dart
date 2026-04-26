@@ -274,94 +274,11 @@ class _PermissionGateState extends State<PermissionGate> {
   }
 }
 
-class HomeScreen extends StatefulWidget {
+class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
 
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
-}
-
-class _HomeScreenState extends State<HomeScreen> {
-  int _currentIndex = 0;
-  final List<Widget> _screens = const [
-    CameraScreen(),
-    GalleryScreen(),
-  ];
-
-  @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: IndexedStack(
-        index: _currentIndex,
-        children: _screens,
-      ),
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          color: AppTheme.surfaceDark,
-          border: Border(
-            top: BorderSide(
-              color: AppTheme.borderColor.withValues(alpha: 0.3),
-              width: 0.5,
-            ),
-          ),
-        ),
-        child: BottomNavigationBar(
-          currentIndex: _currentIndex,
-          onTap: (index) => setState(() => _currentIndex = index),
-          items: [
-            BottomNavigationBarItem(
-              icon: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: _currentIndex == 0
-                      ? AppTheme.accent.withValues(alpha: 0.1)
-                      : Colors.transparent,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(
-                  _currentIndex == 0
-                      ? Icons.camera_alt_rounded
-                      : Icons.camera_alt_outlined,
-                  size: 24,
-                ),
-              ),
-              label: 'Camera',
-            ),
-            BottomNavigationBarItem(
-              icon: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: _currentIndex == 1
-                      ? AppTheme.accent.withValues(alpha: 0.1)
-                      : Colors.transparent,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Consumer<PhotoProvider>(
-                  builder: (context, provider, child) {
-                    return Badge(
-                      isLabelVisible: provider.photoCount > 0,
-                      label: Text(
-                        '${provider.photoCount}',
-                        style: const TextStyle(fontSize: 9),
-                      ),
-                      backgroundColor: AppTheme.accent,
-                      child: Icon(
-                        _currentIndex == 1
-                            ? Icons.photo_library_rounded
-                            : Icons.photo_library_outlined,
-                        size: 24,
-                      ),
-                    );
-                  },
-                ),
-              ),
-              label: 'Gallery',
-            ),
-          ],
-        ),
-      ),
-    );
+    return const CameraScreen();
   }
 }

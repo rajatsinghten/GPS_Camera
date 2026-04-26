@@ -15,29 +15,53 @@ class GpsWatermark extends StatelessWidget {
 
     return RotatedBox(
       quarterTurns: photo.watermarkRotation,
-      child: Container(
-        margin: const EdgeInsets.all(8),
-        decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.75),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: IntrinsicHeight(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+          crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            // Map cutout on the left
-            SizedBox(
-              width: 110,
+            // Map Bubble (Square)
+            Container(
+              width: 125,
+              height: 125,
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.7),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.15), width: 0.5),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.2),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              clipBehavior: Clip.antiAlias,
               child: _buildMapCutout(),
             ),
-            // Data panel on the right
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(10, 10, 12, 8),
+            
+            const SizedBox(width: 5), // Padding between boxes
+            
+            // Info Bubble (Rectangle)
+            Flexible(
+              child: Container(
+                height: 125, // Match Map Bubble height
+                padding: const EdgeInsets.fromLTRB(12, 10, 14, 10),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.7),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.15), width: 0.5),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.2),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center, // Center content vertically
                   children: [
                     // Location name header
                     Text(
@@ -46,33 +70,33 @@ class GpsWatermark extends StatelessWidget {
                           : _extractLocationName(photo.address),
                       style: const TextStyle(
                         color: Colors.white,
-                        fontSize: 13,
+                        fontSize: 14,
                         fontWeight: FontWeight.w700,
                         height: 1.2,
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(height: 3),
+                    const SizedBox(height: 4),
 
                     // Street address
                     Text(
                       photo.address,
                       style: TextStyle(
                         color: Colors.white.withValues(alpha: 0.8),
-                        fontSize: 9.5,
+                        fontSize: 10,
                         fontWeight: FontWeight.w400,
                         height: 1.3,
                       ),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 6),
 
-                    // Coordinates
+                    // Coordinates & Time
                     Row(
                       children: [
-                        Icon(Icons.my_location, color: Colors.white.withValues(alpha: 0.6), size: 10),
+                        Icon(Icons.my_location, color: Colors.white.withValues(alpha: 0.5), size: 10),
                         const SizedBox(width: 4),
                         Text(
                           photo.formattedCoordinates,
@@ -83,33 +107,27 @@ class GpsWatermark extends StatelessWidget {
                             fontFamily: 'monospace',
                           ),
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 2),
-
-                    // Timestamp
-                    Row(
-                      children: [
-                        Icon(Icons.access_time, color: Colors.white.withValues(alpha: 0.6), size: 10),
+                        const SizedBox(width: 8),
+                        Icon(Icons.access_time, color: Colors.white.withValues(alpha: 0.5), size: 10),
                         const SizedBox(width: 4),
                         Text(
-                          dateFormat.format(photo.timestamp),
+                          DateFormat('HH:mm').format(photo.timestamp),
                           style: TextStyle(
                             color: Colors.white.withValues(alpha: 0.7),
                             fontSize: 9,
-                            fontWeight: FontWeight.w400,
+                            fontWeight: FontWeight.w500,
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 8),
 
                     // Telemetry row divider
                     Container(
                       height: 0.5,
-                      color: Colors.white.withValues(alpha: 0.15),
+                      color: Colors.white.withValues(alpha: 0.1),
                     ),
-                    const SizedBox(height: 5),
+                    const SizedBox(height: 8),
 
                     // Telemetry row
                     Row(
@@ -128,7 +146,7 @@ class GpsWatermark extends StatelessWidget {
           ],
         ),
       ),
-    ));
+    );
   }
 
   Widget _buildMapCutout() {

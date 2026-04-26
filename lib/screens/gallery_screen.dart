@@ -4,8 +4,6 @@ import 'package:provider/provider.dart';
 import '../models/gps_photo.dart';
 import '../providers/photo_provider.dart';
 import '../utils/theme.dart';
-import '../widgets/gps_watermark.dart';
-import '../widgets/map_snippet.dart';
 import '../widgets/photo_card.dart';
 
 class GalleryScreen extends StatelessWidget {
@@ -130,7 +128,7 @@ class GalleryScreen extends StatelessWidget {
     Navigator.of(context).push(
       PageRouteBuilder(
         pageBuilder: (context, animation, secondaryAnimation) =>
-            _PhotoDetailScreen(photo: photo, index: index),
+            _PhotoDetailScreen(initialIndex: index),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
           return FadeTransition(opacity: animation, child: child);
         },
@@ -140,11 +138,31 @@ class GalleryScreen extends StatelessWidget {
   }
 }
 
-class _PhotoDetailScreen extends StatelessWidget {
-  final GpsPhoto photo;
-  final int index;
+class _PhotoDetailScreen extends StatefulWidget {
+  final int initialIndex;
 
-  const _PhotoDetailScreen({required this.photo, required this.index});
+  const _PhotoDetailScreen({required this.initialIndex});
+
+  @override
+  State<_PhotoDetailScreen> createState() => _PhotoDetailScreenState();
+}
+
+class _PhotoDetailScreenState extends State<_PhotoDetailScreen> {
+  late PageController _pageController;
+  late int _currentIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentIndex = widget.initialIndex;
+    _pageController = PageController(initialPage: widget.initialIndex);
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -186,53 +204,58 @@ class _PhotoDetailScreen extends StatelessWidget {
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Photo
-            Hero(
-              tag: 'photo_${photo.imagePath}',
-              child: AspectRatio(
-                aspectRatio: 4 / 3,
-                child: Image.file(
-                  File(photo.compositePath ?? photo.imagePath),
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => Container(
-                    color: AppTheme.cardDark,
-                    child: const Center(
-                      child: Icon(
-                        Icons.broken_image_rounded,
-                        color: AppTheme.textSecondary,
-                        size: 48,
+      body: Consumer<PhotoProvider>(
+        builder: (context, provider, child) {
+          if (provider.photos.isEmpty) {
+            // If all photos are deleted, auto close
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) Navigator.of(context).pop();
+            });
+            return const SizedBox.shrink();
+          }
+
+          // Ensure index doesn't go out of bounds if the last photo was deleted
+          if (_currentIndex >= provider.photos.length) {
+            _currentIndex = provider.photos.length - 1;
+          }
+
+          return PageView.builder(
+            controller: _pageController,
+            onPageChanged: (index) {
+              setState(() => _currentIndex = index);
+            },
+            itemCount: provider.photos.length,
+            itemBuilder: (context, index) {
+              final photo = provider.photos[index];
+              return InteractiveViewer(
+                minScale: 1.0,
+                maxScale: 4.0,
+                child: Center(
+                  child: Hero(
+                    tag: 'photo_${photo.imagePath}',
+                    child: AspectRatio(
+                      aspectRatio: 3 / 4,
+                      child: Image.file(
+                        File(photo.compositePath ?? photo.imagePath),
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Container(
+                          color: AppTheme.cardDark,
+                          child: const Center(
+                            child: Icon(
+                              Icons.broken_image_rounded,
+                              color: AppTheme.textSecondary,
+                              size: 48,
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
-            ),
-
-            // GPS info
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: GpsWatermark(photo: photo),
-            ),
-
-            // Map
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: MapSnippet(
-                latitude: photo.latitude,
-                longitude: photo.longitude,
-                height: 220,
-                zoom: 15,
-                interactive: true,
-              ),
-            ),
-
-            const SizedBox(height: 32),
-          ],
-        ),
+              );
+            },
+          );
+        },
       ),
     );
   }
@@ -240,7 +263,7 @@ class _PhotoDetailScreen extends StatelessWidget {
   void _confirmDelete(BuildContext context) {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         backgroundColor: AppTheme.cardDark,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
@@ -259,15 +282,14 @@ class _PhotoDetailScreen extends StatelessWidget {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child:
-                const Text('Cancel', style: TextStyle(color: AppTheme.textSecondary)),
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel', style: TextStyle(color: AppTheme.textSecondary)),
           ),
           TextButton(
             onPressed: () {
-              context.read<PhotoProvider>().removePhoto(index);
-              Navigator.of(context).pop(); // Close dialog
-              Navigator.of(context).pop(); // Go back to gallery
+              context.read<PhotoProvider>().removePhoto(_currentIndex);
+              Navigator.of(dialogContext).pop(); // Close dialog
+              // We do not pop the screen here, the Consumer handles closing if empty!
             },
             child: const Text(
               'Delete',
