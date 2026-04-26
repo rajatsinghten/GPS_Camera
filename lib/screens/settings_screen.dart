@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import '../utils/theme.dart';
-import 'camera_screen.dart';
+import 'camera_screen.dart'; // To access WatermarkMode
 
 class SettingsScreen extends StatefulWidget {
   final WatermarkMode initialWatermarkMode;
@@ -14,7 +14,7 @@ class SettingsScreen extends StatefulWidget {
   final Function(bool) onHDRChange;
 
   const SettingsScreen({
-    super.key,
+    Key? key,
     required this.initialWatermarkMode,
     required this.initialFlashMode,
     required this.initialTimerSeconds,
@@ -23,7 +23,7 @@ class SettingsScreen extends StatefulWidget {
     required this.onFlashChange,
     required this.onTimerChange,
     required this.onHDRChange,
-  });
+  }) : super(key: key);
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -49,7 +49,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       case FlashMode.off: return 'Off';
       case FlashMode.auto: return 'Auto';
       case FlashMode.always: return 'On';
-      default: return 'Torch';
+      case FlashMode.torch: return 'Torch';
     }
   }
 
@@ -76,18 +76,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   void _toggleFlash() {
     final modes = [FlashMode.off, FlashMode.auto, FlashMode.always];
-    setState(() => _currentFlashMode = modes[(modes.indexOf(_currentFlashMode) + 1) % modes.length]);
+    final nextIndex = (modes.indexOf(_currentFlashMode) + 1) % modes.length;
+    setState(() {
+      _currentFlashMode = modes[nextIndex];
+    });
     widget.onFlashChange(_currentFlashMode);
   }
 
   void _toggleTimer() {
     final timers = [0, 3, 10];
-    setState(() => _currentTimerSeconds = timers[(timers.indexOf(_currentTimerSeconds) + 1) % timers.length]);
+    final nextIndex = (timers.indexOf(_currentTimerSeconds) + 1) % timers.length;
+    setState(() {
+      _currentTimerSeconds = timers[nextIndex];
+    });
     widget.onTimerChange(_currentTimerSeconds);
   }
 
   void _toggleHDR() {
-    setState(() => _currentHdrEnabled = !_currentHdrEnabled);
+    setState(() {
+      _currentHdrEnabled = !_currentHdrEnabled;
+    });
     widget.onHDRChange(_currentHdrEnabled);
   }
 
@@ -100,25 +108,61 @@ class _SettingsScreenState extends State<SettingsScreen> {
         iconTheme: const IconThemeData(color: Colors.white),
         title: const Text(
           'SETTINGS',
-          style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800, letterSpacing: 2),
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 16,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 2,
+          ),
         ),
         centerTitle: true,
       ),
-      body: ListView(
-        padding: const EdgeInsets.symmetric(vertical: 16),
+      body: Column(
         children: [
-          _buildSectionHeader('CAMERA DEFAULTS'),
-          _buildSettingTile('Default Orientation', _orientationLabel, Icons.screen_rotation_rounded, _toggleOrientation),
-          _buildSettingTile('Flash Mode', _flashLabel, Icons.flash_on_rounded, _toggleFlash),
-          _buildSettingTile('Timer', _currentTimerSeconds == 0 ? 'Off' : '${_currentTimerSeconds}s', Icons.timer_rounded, _toggleTimer),
-          _buildSettingTile('HDR', _currentHdrEnabled ? 'Enabled' : 'Disabled', Icons.hdr_on_rounded, _toggleHDR),
-          const SizedBox(height: 24),
-          _buildSectionHeader('ABOUT'),
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-            child: Text(
-              'Built by Rajat Singh\nNext Tech Lab\nSRM AP',
-              style: TextStyle(color: Colors.white70, fontSize: 14, height: 1.5, fontWeight: FontWeight.w500),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              children: [
+                _buildSectionHeader('CAMERA DEFAULTS'),
+                _buildSettingTile(
+                  'Default Orientation',
+                  _orientationLabel,
+                  Icons.screen_rotation_rounded,
+                  _toggleOrientation,
+                ),
+                _buildSettingTile(
+                  'Flash Mode',
+                  _flashLabel,
+                  Icons.flash_on_rounded,
+                  _toggleFlash,
+                ),
+                _buildSettingTile(
+                  'Timer',
+                  _currentTimerSeconds == 0 ? 'Off' : '${_currentTimerSeconds}s',
+                  Icons.timer_rounded,
+                  _toggleTimer,
+                ),
+                _buildSettingTile(
+                  'HDR (High Dynamic Range)',
+                  _currentHdrEnabled ? 'Enabled' : 'Disabled',
+                  Icons.hdr_on_rounded,
+                  _toggleHDR,
+                ),
+                const SizedBox(height: 24),
+                _buildSectionHeader('ABOUT'),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                  child: Text(
+                    'Built by Rajat Singh\nNext Tech Lab\nSRM AP',
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 14,
+                      height: 1.5,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -131,7 +175,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
       padding: const EdgeInsets.only(left: 24, right: 24, bottom: 8, top: 16),
       child: Text(
         title,
-        style: const TextStyle(color: AppTheme.accent, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.5),
+        style: const TextStyle(
+          color: AppTheme.accent,
+          fontSize: 12,
+          fontWeight: FontWeight.bold,
+          letterSpacing: 1.5,
+        ),
       ),
     );
   }

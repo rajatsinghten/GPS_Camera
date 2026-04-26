@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import '../models/gps_photo.dart';
 import '../providers/photo_provider.dart';
 import '../utils/theme.dart';
+import '../widgets/gps_watermark.dart';
+import '../widgets/map_snippet.dart';
 import '../widgets/photo_card.dart';
 
 class GalleryScreen extends StatelessWidget {
