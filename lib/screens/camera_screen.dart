@@ -176,17 +176,25 @@ class _CameraScreenState extends State<CameraScreen>
   }
 
   Future<void> _startLocationUpdates() async {
-    final hasPermission = await LocationService.checkAndRequestPermission();
-    if (!hasPermission) {
-      if (mounted) setState(() => _currentAddress = 'Location permission denied');
+    try {
+      await LocationService.ensurePermission();
+    } on LocationException catch (e) {
+      debugPrint('Location unavailable: $e');
+      if (mounted) setState(() => _currentAddress = e.userMessage);
       return;
     }
 
-    final position = await LocationService.getCurrentPosition();
-    if (position != null && mounted) {
-      setState(() => _currentPosition = position);
+    try {
+      final position = await LocationService.getCurrentPosition();
+      if (mounted) {
+        setState(() => _currentPosition = position);
+      }
       _updateAddress(position.latitude, position.longitude);
       _fetchTelemetry(position.latitude, position.longitude);
+    } on LocationException catch (e) {
+      // The stream below may still deliver a fix, so keep it open instead of
+      // giving up on the first failed lookup.
+      debugPrint('Initial GPS fix failed: $e');
     }
 
     _positionStream = LocationService.getPositionStream().listen(
@@ -196,12 +204,16 @@ class _CameraScreenState extends State<CameraScreen>
           _updateAddress(position.latitude, position.longitude);
         }
       },
+      onError: (Object error) {
+        debugPrint('Position stream error: $error');
+      },
     );
   }
 
   Future<void> _updateAddress(double lat, double lng) async {
     final address = await LocationService.getAddressFromCoordinates(lat, lng);
-    if (mounted) setState(() => _currentAddress = address);
+    if (!mounted) return;
+    setState(() => _currentAddress = address ?? 'Unknown location');
   }
 
   Future<void> _fetchTelemetry(double lat, double lng) async {
