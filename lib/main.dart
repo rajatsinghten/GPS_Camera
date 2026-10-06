@@ -4,7 +4,6 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'providers/photo_provider.dart';
 import 'screens/camera_screen.dart';
-import 'screens/gallery_screen.dart';
 import 'utils/theme.dart';
 
 void main() {
@@ -49,8 +48,14 @@ class PermissionGate extends StatefulWidget {
 }
 
 class _PermissionGateState extends State<PermissionGate> {
+  static const _requiredPermissions = <Permission>[
+    Permission.camera,
+    Permission.location,
+  ];
+
   bool _isChecking = true;
   bool _allGranted = false;
+  bool _requestFailed = false;
   Map<Permission, PermissionStatus> _statuses = {};
 
   @override
@@ -60,22 +65,43 @@ class _PermissionGateState extends State<PermissionGate> {
   }
 
   Future<void> _requestPermissions() async {
-    setState(() => _isChecking = true);
+    if (mounted) setState(() => _isChecking = true);
 
-    _statuses = await [
-      Permission.camera,
-      Permission.location,
-    ].request();
+    Map<Permission, PermissionStatus> statuses;
+    var requestFailed = false;
 
-    final allGranted = _statuses.values.every(
+    try {
+      statuses = await _requiredPermissions.request();
+    } catch (e) {
+      // A missing or misbehaving platform plugin must not leave the app stuck
+      // on the splash screen forever with no way forward.
+      debugPrint('Permission request failed: $e');
+      statuses = {
+        for (final permission in _requiredPermissions)
+          permission: PermissionStatus.denied,
+      };
+      requestFailed = true;
+    }
+
+    final allGranted = statuses.values.every(
       (status) => status.isGranted || status.isLimited,
     );
 
-    if (mounted) {
-      setState(() {
-        _isChecking = false;
-        _allGranted = allGranted;
-      });
+    if (!mounted) return;
+    setState(() {
+      _statuses = statuses;
+      _isChecking = false;
+      _allGranted = allGranted;
+      _requestFailed = requestFailed;
+    });
+  }
+
+  Future<void> _openSettings() async {
+    final opened = await openAppSettings();
+    if (!opened && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Couldn't open system settings")),
+      );
     }
   }
 
@@ -161,17 +187,42 @@ class _PermissionGateState extends State<PermissionGate> {
               ),
               const SizedBox(height: 12),
               const Text(
-                'GPS Map Camera needs access to your camera, location, storage, and sensors to function properly.',
+                'GPS Map Camera needs your camera and location to stamp photos with GPS coordinates.',
                 style: TextStyle(
                   color: AppTheme.textSecondary,
                   fontSize: 14,
                 ),
                 textAlign: TextAlign.center,
               ),
+              if (_requestFailed) ...[
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppTheme.dangerRed.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Text(
+                    "Couldn't reach the permission system. Check permissions from system settings.",
+                    style: TextStyle(
+                      color: AppTheme.dangerRed,
+                      fontSize: 12,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ],
               const SizedBox(height: 24),
               // Permission status list
               ..._statuses.entries.map((entry) {
-                final name = entry.key.toString().split('.').last;
+                final name = switch (entry.key) {
+                  Permission.camera => 'Camera',
+                  Permission.location => 'Location',
+                  _ => entry.key.toString().split('.').last,
+                };
                 final granted =
                     entry.value.isGranted || entry.value.isLimited;
                 return Padding(
@@ -215,7 +266,7 @@ class _PermissionGateState extends State<PermissionGate> {
                 children: [
                   Expanded(
                     child: ElevatedButton(
-                      onPressed: () => openAppSettings(),
+                      onPressed: _openSettings,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppTheme.cardDark,
                         foregroundColor: AppTheme.textPrimary,
