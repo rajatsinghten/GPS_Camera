@@ -237,11 +237,10 @@ class _CameraScreenState extends State<CameraScreen>
   }
 
   Future<void> _capturePhoto() async {
-    if (_controller == null ||
-        !_controller!.value.isInitialized ||
-        _isCapturing ||
-        _currentPosition == null) {
-      if (_currentPosition == null && mounted) {
+    if (_isCapturing) return;
+
+    if (_currentPosition == null) {
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Text('Waiting for GPS location...', style: TextStyle(color: Colors.white)),
@@ -254,18 +253,33 @@ class _CameraScreenState extends State<CameraScreen>
       return;
     }
 
+    if (_controller == null || !_controller!.value.isInitialized) return;
+
     setState(() => _isCapturing = true);
 
-    // Timer countdown delay
-    if (_timerSeconds > 0) {
-      await Future.delayed(Duration(seconds: _timerSeconds));
-    }
-
-    _flashController.forward().then((_) => _flashController.reverse());
-
     try {
-      final image = await _controller!.takePicture();
-      final pos = _currentPosition!;
+      // Timer countdown delay
+      if (_timerSeconds > 0) {
+        await Future.delayed(Duration(seconds: _timerSeconds));
+      }
+
+      // The screen can be disposed, or the camera released by a lifecycle
+      // change, while the timer counts down. Re-read everything we depend on
+      // after every await rather than trusting what was true beforehand -
+      // didChangeAppLifecycleState sets _controller to null on 'inactive'.
+      if (!mounted) return;
+      final controller = _controller;
+      final position = _currentPosition;
+      if (controller == null ||
+          !controller.value.isInitialized ||
+          position == null) {
+        return;
+      }
+
+      _flashController.forward().then((_) => _flashController.reverse());
+
+      final image = await controller.takePicture();
+      if (!mounted) return;
 
       final addressParts = _currentAddress.split(',');
       final locationName = addressParts.length > 2
@@ -274,9 +288,9 @@ class _CameraScreenState extends State<CameraScreen>
 
       final photo = GpsPhoto(
         imagePath: image.path,
-        latitude: pos.latitude,
-        longitude: pos.longitude,
-        altitude: pos.altitude != 0.0 ? pos.altitude : null,
+        latitude: position.latitude,
+        longitude: position.longitude,
+        altitude: position.altitude != 0.0 ? position.altitude : null,
         address: _currentAddress,
         locationName: locationName,
         timestamp: DateTime.now(),
@@ -286,19 +300,17 @@ class _CameraScreenState extends State<CameraScreen>
         watermarkRotation: _currentQuarterTurns,
       );
 
-      if (mounted) {
-        setState(() {
-          _photoToProcess = photo;
-          _isCapturing = false;
-          _isSavingComposite = true;
-        });
-        
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          _processAndSavePhoto(photo);
-        });
-      }
+      setState(() {
+        _photoToProcess = photo;
+        _isSavingComposite = true;
+      });
+
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _processAndSavePhoto(photo);
+      });
     } catch (e) {
       debugPrint('Capture error: $e');
+    } finally {
       if (mounted) setState(() => _isCapturing = false);
     }
   }
