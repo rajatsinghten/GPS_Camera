@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/gps_photo.dart';
 import '../providers/photo_provider.dart';
+import '../services/photo_storage.dart';
 import '../utils/theme.dart';
 import '../widgets/gps_watermark.dart';
 import '../widgets/map_snippet.dart';
@@ -288,9 +289,19 @@ class _PhotoDetailScreenState extends State<_PhotoDetailScreen> {
             child: const Text('Cancel', style: TextStyle(color: AppTheme.textSecondary)),
           ),
           TextButton(
-            onPressed: () {
-              context.read<PhotoProvider>().removePhoto(_currentIndex);
+            onPressed: () async {
+              final removed =
+                  context.read<PhotoProvider>().removePhoto(_currentIndex);
               Navigator.of(dialogContext).pop(); // Close dialog
+
+              // The entry is gone from memory already; drop the files behind
+              // it so deleting a photo actually frees storage.
+              if (removed != null) {
+                await PhotoStorage.deleteFiles(
+                  compositePath: removed.compositePath,
+                  imagePath: removed.imagePath,
+                );
+              }
               // We do not pop the screen here, the Consumer handles closing if empty!
             },
             child: const Text(

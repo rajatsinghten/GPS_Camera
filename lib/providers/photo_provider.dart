@@ -13,11 +13,13 @@ class PhotoProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  void removePhoto(int index) {
-    if (index >= 0 && index < _photos.length) {
-      _photos.removeAt(index);
-      notifyListeners();
-    }
+  /// Removes the photo at [index] and returns it so the caller can clean up
+  /// the files backing it. Returns null when [index] is out of range.
+  GpsPhoto? removePhoto(int index) {
+    if (index < 0 || index >= _photos.length) return null;
+    final removed = _photos.removeAt(index);
+    notifyListeners();
+    return removed;
   }
 
   void updateComposite(int index, String compositePath) {
