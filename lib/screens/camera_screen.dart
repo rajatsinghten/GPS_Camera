@@ -240,16 +240,7 @@ class _CameraScreenState extends State<CameraScreen>
     if (_isCapturing) return;
 
     if (_currentPosition == null) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Waiting for GPS location...', style: TextStyle(color: Colors.white)),
-            backgroundColor: AppTheme.dangerRed,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          ),
-        );
-      }
+      _showSnackBar('Waiting for GPS location...', isError: true);
       return;
     }
 
@@ -315,59 +306,92 @@ class _CameraScreenState extends State<CameraScreen>
     }
   }
 
+  void _showSnackBar(String message, {bool isError = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message, style: const TextStyle(color: Colors.white)),
+        backgroundColor: isError ? AppTheme.dangerRed : AppTheme.cardDark,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
+  }
+
   Future<void> _processAndSavePhoto(GpsPhoto photo) async {
     try {
       // Ensure the high-res capture is fully decoded into memory before capturing the RepaintBoundary.
       await precacheImage(FileImage(File(photo.imagePath)), context);
-      
+      if (!mounted) return;
+
       // Delay to guarantee the RepaintBoundary has finished painting the newly decoded image across all pipeline stages
       await Future.delayed(const Duration(milliseconds: 350));
-      
+      if (!mounted) return;
+
       final boundary = _compositeKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
-      if (boundary == null) return;
+      if (boundary == null) {
+        _showSnackBar("Couldn't render the photo overlay", isError: true);
+        return;
+      }
 
       // Lower pixelRatio to 3.5 (approx 1400x1900 resolution). This provides an incredibly sharp 
       // visual quality while reducing the CPU-bound PNG encoding time from ~4 seconds down to ~0.5s!
       final image = await boundary.toImage(pixelRatio: 3.5);
       final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+      image.dispose();
       final bytes = byteData?.buffer.asUint8List();
-      
-      if (bytes != null) {
-        // Save to Android/iOS Gallery directly
-        await ImageGallerySaverPlus.saveImage(
+
+      if (bytes == null) {
+        _showSnackBar("Couldn't encode the photo", isError: true);
+        return;
+      }
+
+      // Save to Android/iOS Gallery directly. A failure here only means the
+      // photo is missing from the device gallery - the app-private copy below
+      // is what the in-app gallery reads - so warn instead of aborting.
+      try {
+        final galleryResult = await ImageGallerySaverPlus.saveImage(
           bytes,
           quality: 100,
           name: 'GPS_${DateTime.now().millisecondsSinceEpoch}',
         );
-
-        // Save to App Documents for the in-app gallery view
-        final directory = await getApplicationDocumentsDirectory();
-        final gpsDir = Directory('${directory.path}/gps_photos');
-        if (!await gpsDir.exists()) await gpsDir.create(recursive: true);
-        final file = File('${gpsDir.path}/GPS_${DateTime.now().millisecondsSinceEpoch}.png');
-        await file.writeAsBytes(bytes);
-
-        final savedPhoto = GpsPhoto(
-          imagePath: photo.imagePath,
-          latitude: photo.latitude,
-          longitude: photo.longitude,
-          altitude: photo.altitude,
-          address: photo.address,
-          locationName: photo.locationName,
-          timestamp: photo.timestamp,
-          compositePath: file.path,
-          windSpeed: photo.windSpeed,
-          humidity: photo.humidity,
-          magneticField: photo.magneticField,
-          watermarkRotation: photo.watermarkRotation,
-        );
-        
-        if (mounted) {
-          context.read<PhotoProvider>().addPhoto(savedPhoto);
+        if (galleryResult['isSuccess'] != true) {
+          debugPrint('Device gallery save did not report success: $galleryResult');
+          _showSnackBar('Saved in the app, but not to your device gallery');
         }
+      } catch (e) {
+        debugPrint('Device gallery save failed: $e');
+        _showSnackBar('Saved in the app, but not to your device gallery');
       }
-    } catch (e) {
-      debugPrint('Background save error: $e');
+
+      // Save to App Documents for the in-app gallery view
+      final directory = await getApplicationDocumentsDirectory();
+      final gpsDir = Directory('${directory.path}/gps_photos');
+      if (!await gpsDir.exists()) await gpsDir.create(recursive: true);
+      final file = File('${gpsDir.path}/GPS_${DateTime.now().millisecondsSinceEpoch}.png');
+      await file.writeAsBytes(bytes);
+
+      final savedPhoto = GpsPhoto(
+        imagePath: photo.imagePath,
+        latitude: photo.latitude,
+        longitude: photo.longitude,
+        altitude: photo.altitude,
+        address: photo.address,
+        locationName: photo.locationName,
+        timestamp: photo.timestamp,
+        compositePath: file.path,
+        windSpeed: photo.windSpeed,
+        humidity: photo.humidity,
+        magneticField: photo.magneticField,
+        watermarkRotation: photo.watermarkRotation,
+      );
+
+      if (mounted) {
+        context.read<PhotoProvider>().addPhoto(savedPhoto);
+      }
+    } catch (e, stackTrace) {
+      debugPrint('Background save error: $e\n$stackTrace');
+      _showSnackBar("Couldn't save the photo", isError: true);
     } finally {
       if (mounted) {
         setState(() {
@@ -775,13 +799,13 @@ class _CameraScreenState extends State<CameraScreen>
                     ],
                   ),
                   
-                  // Text CAMERA at the bottom
+                  // Status text at the bottom
                   Padding(
                     padding: const EdgeInsets.only(bottom: 8.0),
                     child: Text(
-                      'CAMERA',
+                      _isSavingComposite ? 'SAVING...' : 'CAMERA',
                       style: TextStyle(
-                        color: Colors.white, // Highlighted yellow like iOS camera modes
+                        color: _isSavingComposite ? AppTheme.accent : Colors.white,
                         fontSize: 12,
                         fontWeight: FontWeight.w800,
                         letterSpacing: 2,
