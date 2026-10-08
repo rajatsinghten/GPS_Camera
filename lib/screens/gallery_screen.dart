@@ -153,18 +153,45 @@ class _PhotoDetailScreen extends StatefulWidget {
 class _PhotoDetailScreenState extends State<_PhotoDetailScreen> {
   late PageController _pageController;
   late int _currentIndex;
+  late PhotoProvider _provider;
 
   @override
   void initState() {
     super.initState();
     _currentIndex = widget.initialIndex;
     _pageController = PageController(initialPage: widget.initialIndex);
+    _provider = context.read<PhotoProvider>();
+    _provider.addListener(_handlePhotosChanged);
   }
 
   @override
   void dispose() {
+    _provider.removeListener(_handlePhotosChanged);
     _pageController.dispose();
     super.dispose();
+  }
+
+  /// Reacts to deletions.
+  ///
+  /// This used to run inside build(), where it scheduled a post-frame pop and
+  /// mutated _currentIndex mid-build. Both are side effects during build and
+  /// invite "setState during build" and double-pop assertions.
+  void _handlePhotosChanged() {
+    if (!mounted) return;
+
+    final length = _provider.photos.length;
+    if (length == 0) {
+      Navigator.of(context).pop();
+      return;
+    }
+
+    if (_currentIndex < length) return;
+
+    final lastIndex = length - 1;
+    setState(() => _currentIndex = lastIndex);
+    if (_pageController.hasClients) {
+      _pageController.jumpToPage(lastIndex);
+    }
   }
 
   @override
@@ -210,16 +237,8 @@ class _PhotoDetailScreenState extends State<_PhotoDetailScreen> {
       body: Consumer<PhotoProvider>(
         builder: (context, provider, child) {
           if (provider.photos.isEmpty) {
-            // If all photos are deleted, auto close
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted) Navigator.of(context).pop();
-            });
+            // _handlePhotosChanged closes the screen once the last photo goes.
             return const SizedBox.shrink();
-          }
-
-          // Ensure index doesn't go out of bounds if the last photo was deleted
-          if (_currentIndex >= provider.photos.length) {
-            _currentIndex = provider.photos.length - 1;
           }
 
           return PageView.builder(
@@ -290,9 +309,13 @@ class _PhotoDetailScreenState extends State<_PhotoDetailScreen> {
           ),
           TextButton(
             onPressed: () async {
+              // Close the dialog first. removePhoto notifies listeners, and
+              // _handlePhotosChanged pops the route on the last photo - if the
+              // dialog were still on top it would be the one popped.
+              Navigator.of(dialogContext).pop();
+
               final removed =
                   context.read<PhotoProvider>().removePhoto(_currentIndex);
-              Navigator.of(dialogContext).pop(); // Close dialog
 
               // The entry is gone from memory already; drop the files behind
               // it so deleting a photo actually frees storage.
@@ -302,7 +325,8 @@ class _PhotoDetailScreenState extends State<_PhotoDetailScreen> {
                   imagePath: removed.imagePath,
                 );
               }
-              // We do not pop the screen here, the Consumer handles closing if empty!
+              // We do not pop the screen here, the listener handles closing
+              // the screen once the gallery is empty!
             },
             child: const Text(
               'Delete',
