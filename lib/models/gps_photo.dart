@@ -27,6 +27,41 @@ class GpsPhoto {
     this.watermarkRotation = 0,
   });
 
+  /// Returns a copy with the given fields replaced.
+  ///
+  /// Nullable fields fall back to their current value, so this cannot be used
+  /// to clear [altitude], [compositePath], wind, humidity or magnetic field -
+  /// none of the current call sites need that.
+  GpsPhoto copyWith({
+    String? imagePath,
+    double? latitude,
+    double? longitude,
+    double? altitude,
+    String? address,
+    String? locationName,
+    DateTime? timestamp,
+    String? compositePath,
+    double? windSpeed,
+    double? humidity,
+    double? magneticField,
+    int? watermarkRotation,
+  }) {
+    return GpsPhoto(
+      imagePath: imagePath ?? this.imagePath,
+      latitude: latitude ?? this.latitude,
+      longitude: longitude ?? this.longitude,
+      altitude: altitude ?? this.altitude,
+      address: address ?? this.address,
+      locationName: locationName ?? this.locationName,
+      timestamp: timestamp ?? this.timestamp,
+      compositePath: compositePath ?? this.compositePath,
+      windSpeed: windSpeed ?? this.windSpeed,
+      humidity: humidity ?? this.humidity,
+      magneticField: magneticField ?? this.magneticField,
+      watermarkRotation: watermarkRotation ?? this.watermarkRotation,
+    );
+  }
+
   String get formattedCoordinates {
     final latDir = latitude >= 0 ? 'N' : 'S';
     final lngDir = longitude >= 0 ? 'E' : 'W';

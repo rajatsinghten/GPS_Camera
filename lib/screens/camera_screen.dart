@@ -371,20 +371,7 @@ class _CameraScreenState extends State<CameraScreen>
       final file = File('${gpsDir.path}/GPS_${DateTime.now().millisecondsSinceEpoch}.png');
       await file.writeAsBytes(bytes);
 
-      final savedPhoto = GpsPhoto(
-        imagePath: photo.imagePath,
-        latitude: photo.latitude,
-        longitude: photo.longitude,
-        altitude: photo.altitude,
-        address: photo.address,
-        locationName: photo.locationName,
-        timestamp: photo.timestamp,
-        compositePath: file.path,
-        windSpeed: photo.windSpeed,
-        humidity: photo.humidity,
-        magneticField: photo.magneticField,
-        watermarkRotation: photo.watermarkRotation,
-      );
+      final savedPhoto = photo.copyWith(compositePath: file.path);
 
       if (mounted) {
         context.read<PhotoProvider>().addPhoto(savedPhoto);

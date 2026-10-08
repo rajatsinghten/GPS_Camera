@@ -1,10 +1,17 @@
+import 'dart:collection';
+
 import 'package:flutter/foundation.dart';
 import '../models/gps_photo.dart';
 
 class PhotoProvider extends ChangeNotifier {
   final List<GpsPhoto> _photos = [];
 
-  List<GpsPhoto> get photos => List.unmodifiable(_photos);
+  // Built once and reused. `List.unmodifiable(_photos)` allocated a fresh
+  // list on every access, and the gallery reads this several times per frame,
+  // including inside itemBuilder.
+  late final List<GpsPhoto> _photosView = UnmodifiableListView(_photos);
+
+  List<GpsPhoto> get photos => _photosView;
 
   int get photoCount => _photos.length;
 
@@ -23,18 +30,11 @@ class PhotoProvider extends ChangeNotifier {
   }
 
   void updateComposite(int index, String compositePath) {
-    if (index >= 0 && index < _photos.length) {
-      final old = _photos[index];
-      _photos[index] = GpsPhoto(
-        imagePath: old.imagePath,
-        latitude: old.latitude,
-        longitude: old.longitude,
-        altitude: old.altitude,
-        address: old.address,
-        timestamp: old.timestamp,
-        compositePath: compositePath,
-      );
-      notifyListeners();
-    }
+    if (index < 0 || index >= _photos.length) return;
+    // copyWith keeps every field. The previous inline reconstruction silently
+    // dropped locationName, windSpeed, humidity, magneticField and
+    // watermarkRotation.
+    _photos[index] = _photos[index].copyWith(compositePath: compositePath);
+    notifyListeners();
   }
 }
