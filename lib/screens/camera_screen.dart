@@ -9,10 +9,10 @@ import 'package:geolocator/geolocator.dart';
 import 'package:provider/provider.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 import 'package:image_gallery_saver_plus/image_gallery_saver_plus.dart';
-import 'package:path_provider/path_provider.dart';
 import '../models/gps_photo.dart';
 
 import '../services/location_service.dart';
+import '../services/photo_storage.dart';
 import '../services/telemetry_service.dart';
 import '../utils/theme.dart';
 import '../widgets/gps_watermark.dart';
@@ -364,14 +364,15 @@ class _CameraScreenState extends State<CameraScreen>
         _showSnackBar('Saved in the app, but not to your device gallery');
       }
 
-      // Save to App Documents for the in-app gallery view
-      final directory = await getApplicationDocumentsDirectory();
-      final gpsDir = Directory('${directory.path}/gps_photos');
-      if (!await gpsDir.exists()) await gpsDir.create(recursive: true);
-      final file = File('${gpsDir.path}/GPS_${DateTime.now().millisecondsSinceEpoch}.png');
-      await file.writeAsBytes(bytes);
+      // Save to App Documents for the in-app gallery view, with a metadata
+      // sidecar so the gallery survives a restart.
+      final compositePath = await PhotoStorage.saveComposite(
+        photo,
+        bytes,
+        timestamp: photo.timestamp,
+      );
 
-      final savedPhoto = photo.copyWith(compositePath: file.path);
+      final savedPhoto = photo.copyWith(compositePath: compositePath);
 
       if (mounted) {
         context.read<PhotoProvider>().addPhoto(savedPhoto);

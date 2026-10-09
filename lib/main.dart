@@ -28,7 +28,7 @@ class GPSCameraApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
-      create: (_) => PhotoProvider(),
+      create: (_) => PhotoProvider()..restoreSavedPhotos(),
       child: MaterialApp(
         title: 'GPS Camera',
         debugShowCheckedModeBanner: false,

@@ -62,6 +62,44 @@ class GpsPhoto {
     );
   }
 
+  /// Serialises every field so a saved photo can be rebuilt on the next
+  /// launch. See [PhotoStorage] for the on-disk layout.
+  Map<String, dynamic> toJson() {
+    return {
+      'imagePath': imagePath,
+      'latitude': latitude,
+      'longitude': longitude,
+      'altitude': altitude,
+      'address': address,
+      'locationName': locationName,
+      'timestamp': timestamp.toIso8601String(),
+      'compositePath': compositePath,
+      'windSpeed': windSpeed,
+      'humidity': humidity,
+      'magneticField': magneticField,
+      'watermarkRotation': watermarkRotation,
+    };
+  }
+
+  factory GpsPhoto.fromJson(Map<String, dynamic> json) {
+    return GpsPhoto(
+      imagePath: json['imagePath'] as String? ?? '',
+      latitude: (json['latitude'] as num?)?.toDouble() ?? 0,
+      longitude: (json['longitude'] as num?)?.toDouble() ?? 0,
+      altitude: (json['altitude'] as num?)?.toDouble(),
+      address: json['address'] as String? ?? '',
+      locationName: json['locationName'] as String? ?? '',
+      timestamp:
+          DateTime.tryParse(json['timestamp'] as String? ?? '') ??
+              DateTime.now(),
+      compositePath: json['compositePath'] as String?,
+      windSpeed: (json['windSpeed'] as num?)?.toDouble(),
+      humidity: (json['humidity'] as num?)?.toDouble(),
+      magneticField: (json['magneticField'] as num?)?.toDouble(),
+      watermarkRotation: (json['watermarkRotation'] as num?)?.toInt() ?? 0,
+    );
+  }
+
   String get formattedCoordinates {
     final latDir = latitude >= 0 ? 'N' : 'S';
     final lngDir = longitude >= 0 ? 'E' : 'W';
