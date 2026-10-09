@@ -78,20 +78,7 @@ class _CameraScreenState extends State<CameraScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _accelSubscription = accelerometerEventStream().listen((event) {
-      if (_watermarkMode == WatermarkMode.auto) {
-        int newTurns = 0;
-        if (event.x.abs() > 4.5) {
-          // landscape
-          newTurns = event.x > 0 ? 1 : 3;
-        } else if (event.y.abs() > 4.5) {
-          newTurns = event.y > 0 ? 0 : 2;
-        }
-        if (_currentQuarterTurns != newTurns && mounted) {
-          setState(() => _currentQuarterTurns = newTurns);
-        }
-      }
-    });
+    _accelSubscription = accelerometerEventStream().listen(_onAccelerometer);
     _pulseController = AnimationController(
       duration: const Duration(milliseconds: 1500),
       vsync: this,
@@ -407,6 +394,7 @@ class _CameraScreenState extends State<CameraScreen>
   }
 
   void _toggleWatermarkMode() {
+    _orientationSettleTimer?.cancel();
     setState(() {
       if (_watermarkMode == WatermarkMode.auto) {
         _watermarkMode = WatermarkMode.portrait;
@@ -417,6 +405,7 @@ class _CameraScreenState extends State<CameraScreen>
       } else {
         _watermarkMode = WatermarkMode.auto;
       }
+      _pendingQuarterTurns = _currentQuarterTurns;
     });
   }
 
@@ -439,10 +428,12 @@ class _CameraScreenState extends State<CameraScreen>
           initialTimerSeconds: _timerSeconds,
           initialHdrEnabled: _hdrEnabled,
           onOrientationChange: (mode) {
+            _orientationSettleTimer?.cancel();
             setState(() {
               _watermarkMode = mode;
               if (mode == WatermarkMode.portrait) _currentQuarterTurns = 0;
               if (mode == WatermarkMode.landscape) _currentQuarterTurns = 1;
+              _pendingQuarterTurns = _currentQuarterTurns;
             });
           },
           onFlashChange: (mode) {
@@ -475,11 +466,65 @@ class _CameraScreenState extends State<CameraScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _accelSubscription?.cancel();
+    _orientationSettleTimer?.cancel();
     _controller?.dispose();
     _positionStream?.cancel();
     _pulseController.dispose();
     _flashController.dispose();
     super.dispose();
+  }
+
+  /// Tilt at which the device counts as held sideways.
+  static const _tiltThreshold = 4.5;
+
+  /// How long a new orientation has to hold before it is accepted.
+  static const _orientationSettleDelay = Duration(milliseconds: 250);
+
+  Timer? _orientationSettleTimer;
+  int _pendingQuarterTurns = 0;
+
+  /// Debounces the accelerometer before touching state.
+  ///
+  /// The sensor reports at roughly 50-100Hz and the old code committed a new
+  /// rotation the instant the reading crossed 4.5 on either axis. Holding the
+  /// device near that angle made the value flip back and forth at sensor rate,
+  /// and every real flip rebuilds the whole viewfinder including the live map.
+  /// Requiring an orientation to hold steady first removes the chatter without
+  /// making deliberate rotations feel laggy.
+  void _onAccelerometer(AccelerometerEvent event) {
+    if (_watermarkMode != WatermarkMode.auto) {
+      _orientationSettleTimer?.cancel();
+      return;
+    }
+
+    final turns = _quarterTurnsFor(event);
+
+    if (turns == _currentQuarterTurns) {
+      // Back where we started - abandon any pending switch.
+      _orientationSettleTimer?.cancel();
+      _pendingQuarterTurns = turns;
+      return;
+    }
+
+    if (turns == _pendingQuarterTurns) return;
+
+    _pendingQuarterTurns = turns;
+    _orientationSettleTimer?.cancel();
+    _orientationSettleTimer = Timer(_orientationSettleDelay, () {
+      if (!mounted || _watermarkMode != WatermarkMode.auto) return;
+      if (_currentQuarterTurns == _pendingQuarterTurns) return;
+      setState(() => _currentQuarterTurns = _pendingQuarterTurns);
+    });
+  }
+
+  static int _quarterTurnsFor(AccelerometerEvent event) {
+    if (event.x.abs() > _tiltThreshold) {
+      return event.x > 0 ? 1 : 3;
+    }
+    if (event.y.abs() > _tiltThreshold) {
+      return event.y > 0 ? 0 : 2;
+    }
+    return 0;
   }
 
   GpsPhoto? get _livePhoto {
