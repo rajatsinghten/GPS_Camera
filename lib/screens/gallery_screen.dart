@@ -9,6 +9,11 @@ import '../widgets/gps_watermark.dart';
 import '../widgets/map_snippet.dart';
 import '../widgets/photo_card.dart';
 
+/// Composites are written at roughly 1400x1900, so decoding at 1440 keeps the
+/// full-screen preview at native resolution while letting the PageView hold a
+/// predictable amount of memory per page.
+const _previewCacheWidth = 1440;
+
 class GalleryScreen extends StatelessWidget {
   const GalleryScreen({super.key});
 
@@ -260,6 +265,7 @@ class _PhotoDetailScreenState extends State<_PhotoDetailScreen> {
                       child: Image.file(
                         File(photo.compositePath ?? photo.imagePath),
                         fit: BoxFit.cover,
+                        cacheWidth: _previewCacheWidth,
                         errorBuilder: (_, __, ___) => Container(
                           color: AppTheme.cardDark,
                           child: const Center(

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:geolocator/geolocator.dart';
@@ -14,6 +15,7 @@ import '../models/gps_photo.dart';
 import '../services/location_service.dart';
 import '../services/photo_storage.dart';
 import '../services/telemetry_service.dart';
+import '../utils/composite_encoder.dart';
 import '../utils/theme.dart';
 import '../widgets/gps_watermark.dart';
 import 'review_screen.dart';
@@ -321,17 +323,29 @@ class _CameraScreenState extends State<CameraScreen>
         return;
       }
 
-      // Lower pixelRatio to 3.5 (approx 1400x1900 resolution). This provides an incredibly sharp 
-      // visual quality while reducing the CPU-bound PNG encoding time from ~4 seconds down to ~0.5s!
+      // Lower pixelRatio to 3.5 (approx 1400x1900 resolution) to keep the
+      // composite sharp without paying for a needlessly huge encode.
       final image = await boundary.toImage(pixelRatio: 3.5);
-      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-      image.dispose();
-      final bytes = byteData?.buffer.asUint8List();
-
-      if (bytes == null) {
+      final byteData = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+      if (byteData == null) {
+        image.dispose();
         _showSnackBar("Couldn't encode the photo", isError: true);
         return;
       }
+
+      final pixels = CompositePixels(
+        bytes: byteData.buffer.asUint8List(),
+        width: image.width,
+        height: image.height,
+      );
+      image.dispose();
+
+      if (!mounted) return;
+
+      // PNG encoding is CPU bound and used to run right here, freezing the
+      // viewfinder for roughly half a second after every capture. Hand it to a
+      // background isolate instead.
+      final bytes = await compute(encodeCompositePng, pixels);
 
       // Save to Android/iOS Gallery directly. A failure here only means the
       // photo is missing from the device gallery - the app-private copy below

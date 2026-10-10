@@ -3,6 +3,10 @@ import 'package:flutter/material.dart';
 import '../models/gps_photo.dart';
 import '../utils/theme.dart';
 
+/// Grid cells are roughly 180dp wide. Decoding a full ~1400px composite for
+/// each one wastes both time and memory.
+const _thumbnailCacheWidth = 600;
+
 class PhotoCard extends StatelessWidget {
   final GpsPhoto photo;
   final VoidCallback onTap;
@@ -44,6 +48,7 @@ class PhotoCard extends StatelessWidget {
               child: Image.file(
                 File(photo.compositePath ?? photo.imagePath),
                 fit: BoxFit.cover,
+                cacheWidth: _thumbnailCacheWidth,
                 errorBuilder: (_, __, ___) => Container(
                   color: AppTheme.cardDark,
                   child: const Icon(
