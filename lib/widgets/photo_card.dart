@@ -10,13 +10,11 @@ const _thumbnailCacheWidth = 600;
 class PhotoCard extends StatelessWidget {
   final GpsPhoto photo;
   final VoidCallback onTap;
-  final VoidCallback? onDelete;
 
   const PhotoCard({
     super.key,
     required this.photo,
     required this.onTap,
-    this.onDelete,
   });
 
   @override

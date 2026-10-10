@@ -18,7 +18,6 @@ import '../services/telemetry_service.dart';
 import '../utils/composite_encoder.dart';
 import '../utils/theme.dart';
 import '../widgets/gps_watermark.dart';
-import 'review_screen.dart';
 import 'gallery_screen.dart';
 import '../providers/photo_provider.dart';
 import 'settings_screen.dart';
@@ -67,12 +66,9 @@ class _CameraScreenState extends State<CameraScreen>
   StreamSubscription<AccelerometerEvent>? _accelSubscription;
 
   // Status Strip State
-  FocusMode _focusMode = FocusMode.auto;
   bool _hdrEnabled = false;
   int _timerSeconds = 0;
 
-  late AnimationController _pulseController;
-  late Animation<double> _pulseAnimation;
   late AnimationController _flashController;
   late Animation<double> _flashAnimation;
 
@@ -81,13 +77,6 @@ class _CameraScreenState extends State<CameraScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _accelSubscription = accelerometerEventStream().listen(_onAccelerometer);
-    _pulseController = AnimationController(
-      duration: const Duration(milliseconds: 1500),
-      vsync: this,
-    )..repeat(reverse: true);
-    _pulseAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
-      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
-    );
     _flashController = AnimationController(
       duration: const Duration(milliseconds: 150),
       vsync: this,
@@ -483,7 +472,6 @@ class _CameraScreenState extends State<CameraScreen>
     _orientationSettleTimer?.cancel();
     _controller?.dispose();
     _positionStream?.cancel();
-    _pulseController.dispose();
     _flashController.dispose();
     super.dispose();
   }
@@ -590,11 +578,8 @@ class _CameraScreenState extends State<CameraScreen>
                       ),
                       
                       // Watermark Overlay
-                      Positioned(
-                        bottom: (_photoToProcess!.watermarkRotation == 0 || _photoToProcess!.watermarkRotation == 1 || _photoToProcess!.watermarkRotation == 3) ? 0.0 : null,
-                        top: (_photoToProcess!.watermarkRotation == 2 || _photoToProcess!.watermarkRotation == 1 || _photoToProcess!.watermarkRotation == 3) ? 0.0 : null,
-                        left: (_photoToProcess!.watermarkRotation == 0 || _photoToProcess!.watermarkRotation == 2 || _photoToProcess!.watermarkRotation == 1) ? 0.0 : null,
-                        right: (_photoToProcess!.watermarkRotation == 0 || _photoToProcess!.watermarkRotation == 2 || _photoToProcess!.watermarkRotation == 3) ? 0.0 : null,
+                      _positionedWatermark(
+                        rotation: _photoToProcess!.watermarkRotation,
                         child: GpsWatermark(photo: _photoToProcess!),
                       ),
                     ],
@@ -708,11 +693,9 @@ class _CameraScreenState extends State<CameraScreen>
 
                         // GPS Watermark
                         if (livePhoto != null)
-                          Positioned(
-                            bottom: (_currentQuarterTurns == 0 || _currentQuarterTurns == 1 || _currentQuarterTurns == 3) ? (_currentQuarterTurns == 0 ? 12.0 : 12.0) : null,
-                            top: (_currentQuarterTurns == 2 || _currentQuarterTurns == 1 || _currentQuarterTurns == 3) ? (_currentQuarterTurns == 2 ? 12.0 : 12.0) : null,
-                            left: (_currentQuarterTurns == 0 || _currentQuarterTurns == 2 || _currentQuarterTurns == 1) ? 0.0 : null,
-                            right: (_currentQuarterTurns == 0 || _currentQuarterTurns == 2 || _currentQuarterTurns == 3) ? 0.0 : null,
+                          _positionedWatermark(
+                            rotation: _currentQuarterTurns,
+                            verticalInset: 12.0,
                             child: IgnorePointer(
                               child: Opacity(
                                 opacity: 0.85,
@@ -868,6 +851,32 @@ class _CameraScreenState extends State<CameraScreen>
 
         ],
       ),
+    );
+  }
+
+  /// Places the watermark against the edge opposite its rotation.
+  ///
+  /// Rotation 0 hugs the bottom edge, 1 the left, 2 the top and 3 the right,
+  /// matching the orientation baked into the saved composite. This replaces
+  /// four 12-term boolean chains that were written out twice and carried an
+  /// inner ternary with the same value in both branches.
+  Widget _positionedWatermark({
+    required int rotation,
+    required Widget child,
+    double verticalInset = 0,
+    double horizontalInset = 0,
+  }) {
+    final hugsBottom = rotation == 0 || rotation == 1 || rotation == 3;
+    final hugsTop = rotation == 2 || rotation == 1 || rotation == 3;
+    final hugsLeft = rotation == 0 || rotation == 2 || rotation == 1;
+    final hugsRight = rotation == 0 || rotation == 2 || rotation == 3;
+
+    return Positioned(
+      bottom: hugsBottom ? verticalInset : null,
+      top: hugsTop ? verticalInset : null,
+      left: hugsLeft ? horizontalInset : null,
+      right: hugsRight ? horizontalInset : null,
+      child: child,
     );
   }
 

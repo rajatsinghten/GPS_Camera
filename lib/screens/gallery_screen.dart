@@ -5,8 +5,6 @@ import '../models/gps_photo.dart';
 import '../providers/photo_provider.dart';
 import '../services/photo_storage.dart';
 import '../utils/theme.dart';
-import '../widgets/gps_watermark.dart';
-import '../widgets/map_snippet.dart';
 import '../widgets/photo_card.dart';
 
 /// Composites are written at roughly 1400x1900, so decoding at 1440 keeps the
