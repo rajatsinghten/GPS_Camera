@@ -160,6 +160,12 @@ class _CameraScreenState extends State<CameraScreen>
       debugPrint('Location unavailable: $e');
       if (mounted) setState(() => _currentAddress = e.userMessage);
       return;
+    } catch (e) {
+      // Geolocator can also surface raw platform errors. Letting one escape
+      // here becomes an unhandled async error and strands the placeholder.
+      debugPrint('Location permission check failed: $e');
+      if (mounted) setState(() => _currentAddress = 'Location unavailable');
+      return;
     }
 
     try {
@@ -169,7 +175,7 @@ class _CameraScreenState extends State<CameraScreen>
       }
       _updateAddress(position.latitude, position.longitude);
       _fetchTelemetry(position.latitude, position.longitude);
-    } on LocationException catch (e) {
+    } catch (e) {
       // The stream below may still deliver a fix, so keep it open instead of
       // giving up on the first failed lookup.
       debugPrint('Initial GPS fix failed: $e');
