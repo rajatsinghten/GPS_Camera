@@ -117,7 +117,7 @@ class _CameraScreenState extends State<CameraScreen>
     try {
       await controller.initialize();
       if (!mounted) {
-        controller.dispose();
+        await controller.dispose();
         return;
       }
 
@@ -173,8 +173,9 @@ class _CameraScreenState extends State<CameraScreen>
       if (mounted) {
         setState(() => _currentPosition = position);
       }
-      _updateAddress(position.latitude, position.longitude);
-      _fetchTelemetry(position.latitude, position.longitude);
+      // Fire and forget: both update state themselves once they resolve.
+      unawaited(_updateAddress(position.latitude, position.longitude));
+      unawaited(_fetchTelemetry(position.latitude, position.longitude));
     } catch (e) {
       // The stream below may still deliver a fix, so keep it open instead of
       // giving up on the first failed lookup.
@@ -251,7 +252,9 @@ class _CameraScreenState extends State<CameraScreen>
         return;
       }
 
-      _flashController.forward().then((_) => _flashController.reverse());
+      unawaited(
+        _flashController.forward().then((_) => _flashController.reverse()),
+      );
 
       final image = await controller.takePicture();
       if (!mounted) return;

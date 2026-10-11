@@ -63,7 +63,7 @@ class GpsPhoto {
   }
 
   /// Serialises every field so a saved photo can be rebuilt on the next
-  /// launch. See [PhotoStorage] for the on-disk layout.
+  /// launch. The sidecar written by the photo storage service holds this.
   Map<String, dynamic> toJson() {
     return {
       'imagePath': imagePath,

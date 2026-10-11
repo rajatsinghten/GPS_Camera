@@ -264,7 +264,7 @@ class _PhotoDetailScreenState extends State<_PhotoDetailScreen> {
                         File(photo.compositePath ?? photo.imagePath),
                         fit: BoxFit.cover,
                         cacheWidth: _previewCacheWidth,
-                        errorBuilder: (_, __, ___) => Container(
+                        errorBuilder: (_, _, _) => Container(
                           color: AppTheme.cardDark,
                           child: const Center(
                             child: Icon(

@@ -8,13 +8,13 @@ class SettingsScreen extends StatefulWidget {
   final FlashMode initialFlashMode;
   final int initialTimerSeconds;
   final bool initialHdrEnabled;
-  final Function(WatermarkMode) onOrientationChange;
-  final Function(FlashMode) onFlashChange;
-  final Function(int) onTimerChange;
-  final Function(bool) onHDRChange;
+  final ValueChanged<WatermarkMode> onOrientationChange;
+  final ValueChanged<FlashMode> onFlashChange;
+  final ValueChanged<int> onTimerChange;
+  final ValueChanged<bool> onHDRChange;
 
   const SettingsScreen({
-    Key? key,
+    super.key,
     required this.initialWatermarkMode,
     required this.initialFlashMode,
     required this.initialTimerSeconds,
@@ -23,7 +23,7 @@ class SettingsScreen extends StatefulWidget {
     required this.onFlashChange,
     required this.onTimerChange,
     required this.onHDRChange,
-  }) : super(key: key);
+  });
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();

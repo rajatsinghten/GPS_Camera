@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  analyze-and-test:
+    name: Analyze & test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      # No `dart format --set-exit-if-changed` gate here on purpose: the
+      # codebase is not formatter-clean today (10 of 18 files would change),
+      # so adding one would mean either a red build or a mass reformat bundled
+      # into an unrelated change. Worth doing as its own pass.
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Run tests
+        run: flutter test

@@ -72,5 +72,7 @@
 	<string>This app needs your location to tag photos with GPS coordinates.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>This app needs photo library access to save geotagged photos.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>This app saves your geotagged photos to your photo library.</string>
 </dict>
 </plist>

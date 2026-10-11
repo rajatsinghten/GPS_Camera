@@ -47,7 +47,7 @@ class PhotoCard extends StatelessWidget {
                 File(photo.compositePath ?? photo.imagePath),
                 fit: BoxFit.cover,
                 cacheWidth: _thumbnailCacheWidth,
-                errorBuilder: (_, __, ___) => Container(
+                errorBuilder: (_, _, _) => Container(
                   color: AppTheme.cardDark,
                   child: const Icon(
                     Icons.broken_image_rounded,
