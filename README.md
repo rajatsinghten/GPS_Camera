@@ -4,6 +4,20 @@
 
 A **free, open-source GPS Map Camera** app built with Flutter. Captures photos stamped with your GPS location, satellite map, address, and real-time telemetry data — no ads, no tracking, no nonsense.
 
+## 🎥 Preview
+
+<p align="center">
+  <video src="brag-output/brag.mp4" controls="controls" width="100%" poster="brag-output/brag.jpg">
+    <a href="brag-output/brag.mp4">
+      <img src="brag-output/brag.jpg" alt="GPS Map Camera Launch Video" width="100%">
+    </a>
+  </video>
+</p>
+
+<p align="center">
+  <sub>▶️ <em>Watch the <a href="brag-output/brag.mp4"><strong>16-second Launch Video</strong></a></em></sub>
+</p>
+
 ## 📥 Download
 
 <!-- Replace with your actual download link once available -->

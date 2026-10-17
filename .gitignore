@@ -44,5 +44,8 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
-# Launch video / marketing scratch output
-/brag-output/
+# Tool and scratch files
+.commandcode/
+.agents/
+skills-lock.json
+/brag-output*/
